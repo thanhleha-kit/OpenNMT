@@ -13,6 +13,8 @@ local Checkpoint = require 'lib.train.checkpoint'
 local Data = require 'lib.train.data'
 local Optim = require 'lib.train.optim'
 
+local Plugins = require 'plugins.init'
+
 local cmd = torch.CmdLine()
 
 cmd:text("")
@@ -66,6 +68,14 @@ cmd:option('-fix_word_vecs_enc', false, [[Fix word embeddings on the encoder sid
 cmd:option('-fix_word_vecs_dec', false, [[Fix word embeddings on the decoder side]])
 
 cmd:text("")
+cmd:text("**Plugins**")
+cmd:text("")
+
+local pluginList = Plugins.list()
+
+cmd:option('-plugins', '', [[Activate one or several plugins in the list: ]] .. table.concat(pluginList, ', '))
+
+cmd:text("")
 cmd:text("**Other options**")
 cmd:text("")
 
@@ -82,6 +92,7 @@ cmd:option('-seed', 3435, [[Seed for random initialization]])
 
 local opt = cmd:parse(arg)
 
+Plugins.load(opt.plugins)
 
 local function get_nets(model)
   local nets = {}
@@ -209,6 +220,8 @@ local function train(model, train_data, valid_data, dataset, info)
       if opt.save_every > 0 and i % opt.save_every == 0 then
         checkpoint:save_iteration(i, epoch_state, batch_order)
       end
+
+      Plugins.triggerHooks('training:after_batch', {model=model})
     end
 
     return epoch_state
