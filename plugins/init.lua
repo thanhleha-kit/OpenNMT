@@ -33,4 +33,17 @@ function Plugins.triggerHooks(name, params)
   end
 end
 
+-- add cmdline options for a non-yet loaded plugin
+function Plugins.registerOptions(cmd, args)
+  for i=1,#args do
+    if args[i] == '-plugins' then
+      for plugin in string.gmatch(args[i+1], "[^, ]+") do
+        local p = require('plugins.'..plugin..'.init')
+        p.registerOptions(cmd)
+      end
+      return
+    end
+  end
+end
+
 return Plugins

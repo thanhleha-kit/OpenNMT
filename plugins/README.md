@@ -9,3 +9,5 @@ Plugins can register function for different 'hooks' that will declared in the co
 <pre>
 Plugins.triggerHooks('HOOKNAME', {PARAMETERS})
 </pre>
+
+Plugins can register options that display in option list when activated
