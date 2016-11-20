@@ -1,7 +1,26 @@
 local cuda = require 'lib.utils.cuda'
 local constants = require 'lib.utils.constants'
 
+-- Data management and batch creation.
+
+-- Batch interface [size]:
+--  source_length: max length in source batch [1]
+--  source_size:  lengths of each source [batch x 1]
+--  source_input:  idx's of source [batch x max]
+--  source_input_rev: idx's of source rev [batch x max]
+--  target_length:
+--  target_size:
+--  target_non_zeros:
+--  target_input:
+--  target_output:
+
+-- TODO: change name of size => maxlen
+
+
+
+
 local function get_length(seq, ignore)
+  -- 
   local sizes = torch.IntTensor(#seq):zero()
   local max = 0
   local sum = 0
@@ -17,6 +36,7 @@ local function get_length(seq, ignore)
   end
   return max, sizes, sum
 end
+
 
 
 local Data = torch.class("Data")
