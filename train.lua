@@ -93,7 +93,7 @@ Plugins.registerOptions(cmd, arg)
 
 local opt = cmd:parse(arg)
 
-Plugins.load(opt.plugins)
+Plugins.load(opt.plugins, opt)
 
 local function get_nets(model)
   local nets = {}
@@ -222,7 +222,7 @@ local function train(model, train_data, valid_data, dataset, info)
         checkpoint:save_iteration(i, epoch_state, batch_order)
       end
 
-      Plugins.triggerHooks('training:after_batch', {model=model})
+      Plugins.triggerHooks('training:after_batch', {model=model, batch=batch})
     end
 
     return epoch_state
@@ -344,6 +344,8 @@ local function main()
   for _, mod in pairs(model) do
     cuda.convert(mod)
   end
+
+  _G.Plugins.triggerHooks('model_initialized', {model=model, opt=opt, dataset=dataset})
 
   train(model, train_data, valid_data, dataset, checkpoint.info)
 end

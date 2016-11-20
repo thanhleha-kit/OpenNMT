@@ -224,6 +224,8 @@ function Decoder:backward(batch, outputs, generator)
     for i = 1, #self.states_proto do
       grad_states_input[i]:copy(grad_input[i])
     end
+
+    _G.Plugins.triggerHooks('decoder:tok_generation', {batch=batch, t=t, pred=pred})
   end
 
   Sequencer.backward_word_vecs(self)
