@@ -4,13 +4,27 @@ local constants = require 'lib.utils.constants'
 local model_utils = require 'lib.utils.model_utils'
 require 'lib.model'
 
+--[[ Sequencer is the base class for our time series LSTM models.
+  Acts similarly to an `nn.Module`.
+   Main task is to manage `self.network_clones`, the unrolled LSTM
+  used during training.
+  Classes encoder/decoder/biencoder generalize these definitions.
+--]]
+local Sequencer, Model = torch.class('Sequencer', 'Model')
+
+--[[
+  Create a nngraph template.
+  Parameters:
+  * `rnn_size` - internalsize
+  * `input_size` - input size
+
+  Returns:
+  An nngraph unit mapping:
+  (c_{t-1}, h_{t-1}, x_t) => (c_{t}, h_{t})
+
+--]]
 local function make_lstm(input_size, rnn_size)
-  -- Create a nngraph template of size `rnn_size` with
-  -- input `input_size`.
-  --
-  -- This is an nngraph unit mapping:
-  -- (c_{t-1}, h_{t-1}, x_t) => (c_{t}, h_{t})
-  
+
   local inputs = {}
   table.insert(inputs, nn.Identity()())
   table.insert(inputs, nn.Identity()())
@@ -50,17 +64,19 @@ local function make_lstm(input_size, rnn_size)
   return gmodule
 end
 
+--[[ Create an nngraph attention unit of size `rnn_size`.
+
+  Returns:
+  An nngraph unit mapping:
+  (H_1 .. H_n, q) => (a)
+  Where H is of `batch x n x rnn_size` and q is of `batch x rnn_size`.
+
+  The full function is  $\tanh(W_2 [(\softmax((W_1 q + b_1) H) H), q] + b_2)$.
+
+  TODO: allow different query and context sizes.
+  TODO: don't use "rnn" (this function is more general)
+--]]
 local function make_attention(rnn_size)
-  -- Create an nngraph attention unit of size `rnn_size`.
-  --
-  -- This is an nngraph unit mapping:
-  -- (H_1 .. H_n, q) => (a)
-  -- Where H is of `batch x n x rnn_size` and q is of `batch x rnn_size`.
-  -- 
-  -- The full function is  $\tanh(W_2 [(\softmax((W_1 q + b_1) H) H), q] + b_2)$.
-  --
-  -- TODO: allow different query and context sizes.
-  -- TODO: don't use "rnn"
   local inputs = {}
   table.insert(inputs, nn.Identity()())
   table.insert(inputs, nn.Identity()())
@@ -85,23 +101,29 @@ local function make_attention(rnn_size)
   return nn.gModule(inputs, {context_output})
 end
 
+
+--[[ Build one time-step of a stacked LSTM network
+
+  Parameters:
+  * `model` - "dec" or "enc"
+  * `args` - global args.
+
+  Returns:
+  An nn-graph mapping:
+
+  (c^1_{t-1}, h^1_{t-1}, .., c^L_{t-1}, h^L_{t-1}, x_t, [con/H], [if]) =>
+  (c^1_{t}, h^1_{t}, .., c^L_{t}, h^L_{t}, [a])
+
+  Where $c^l$ and $h^l$ are the hidden and cell states at each layer,
+  $x_t$ is a sparse word to lookup,
+  $con/H$ is the context/source hidden states for attention,
+  $if$ is the input feeding, and
+  $a$ is the context vector computed at this timestep.
+
+  TODO: remove lookup table from this function.
+--]]
 local function build_network(model, args)
-  -- Build one time-step of a stacked LSTM network where `model` is
-  -- "dec" or "enc" and `args` describes model properties. 
-  --
-  -- This is an nn-graph mapping: 
 
-  -- (c^1_{t-1}, h^1_{t-1}, .., c^L_{t-1}, h^L_{t-1}, x_t, [con/H], [if]) =>
-  -- (c^1_{t}, h^1_{t}, .., c^L_{t}, h^L_{t}, [a])
-  
-  -- Where $c^l$ and $h^l$ are the hidden and cell states at each layer,
-  -- $x_t$ is a sparse word to lookup,
-  -- $con/H$ is the context/source hidden states for attention,
-  -- $if$ is the input feeding, and
-  -- $a$ is the context vector computed at this timestep.
-
-  -- TODO: remove lookup table from this function. 
-  
   local inputs = {}
   local outputs = {}
 
@@ -174,20 +196,19 @@ local function build_network(model, args)
 end
 
 
--- Sequencer is the base class for our time series LSTM models.
--- Acts similarly to an `nn.Module`.
--- Main task is to manage `self.network_clones`, the unrolled LSTM
--- used during training. 
--- Classes encoder/decoder/biencoder generalize these definitions.
+--[[
+  Parameters:
+  * `model` - type of model (enc,dec)
+  * `args` - global arguments
+  * `network` - optional preconstructed network.
 
-local Sequencer, Model = torch.class('Sequencer', 'Model')
+  TODO: Should initialize all the members in this method.
+   i.e. word_vecs, fix_word_vecs, network_clones, eval_mode, etc.
 
+--]]
 function Sequencer:__init(model, args, network)
-  -- TODO: Should initialize all the members in this method.
-  -- i.e. word_vecs, fix_word_vecs, network_clones, eval_mode, etc.
-  
   Model.__init(self)
-  
+
   self.network = network or build_network(model, args)
   self.args = args
 
@@ -207,8 +228,8 @@ function Sequencer:resize_proto(batch_size)
 end
 
 function Sequencer:backward_word_vecs()
-  
-  -- Padding should not have any value. 
+
+  -- Padding should not have any value.
   self.word_vecs.gradWeight[constants.PAD]:zero()
 
   -- Case where the word vectors are given.
@@ -217,10 +238,17 @@ function Sequencer:backward_word_vecs()
   end
 end
 
+--[[
+  Parameters:
+  * `t` - timestep.
+
+  Returns:
+  the raw network clone at timestep t.
+  When evaluate() has been called, cheat and return t=1.
+]]
+
 function Sequencer:net(t)
-  -- Returns the raw network clone at timestep t.
-  -- When evaluate() has been called, cheat and return t=1.
-  
+
   if self.network_clones == nil or t == nil then
     return self.network
   else
@@ -232,23 +260,21 @@ function Sequencer:net(t)
   end
 end
 
+--[[ Tell the network to prepare for training mode. ]]
 function Sequencer:training()
-  -- Tell the network to prepare for training mode.
-
-  
   if self.network_clones == nil then
     -- During training the model will clone itself `self.args.max_sent_length`
     -- times with shared parameters. This allows training to be done in a
     -- feed-forward style, with each input simply extending the network,
-    -- and "backprop through time" consisting of `max_sent_length` steps. 
+    -- and "backprop through time" consisting of `max_sent_length` steps.
 
-    
+
     -- Clone network up to max_sent_length.
     self.network_clones = model_utils.clone_many_times(self.network, self.args.max_sent_length)
     for i = 1, #self.network_clones do
       self.network_clones[i]:training()
     end
-    
+
     -- Lookup table.
     -- Get pointer to lookup table.
     self.network:apply(function (layer)
@@ -272,8 +298,8 @@ function Sequencer:training()
   self.eval_mode = false
 end
 
+--[[ Tell the network to prepare for evaluation mode. ]]
 function Sequencer:evaluate()
-  -- Tell the network to prepare for evaluation mode.
   if self.network_clones == nil then
     self.network:evaluate()
   else
@@ -284,7 +310,7 @@ function Sequencer:evaluate()
 end
 
 function Sequencer:convert(f)
- 
+
   f(self.network)
 
   for i = 1, #self.states_proto do

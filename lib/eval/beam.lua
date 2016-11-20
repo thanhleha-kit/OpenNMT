@@ -1,29 +1,37 @@
 local constants = require 'lib.utils.constants'
 
+--[[ Helper function convert a `flat_index` to a row-column tuple
 
+  Parameters:
+  * `v` - matrix.
+  * `flat_index` - index
+
+  Returns:
+  row/column.
+--]]
 local function flat_to_rc(v, flat_index)
-  -- Helper function convert a `flat_index` to a row-column tuple 
-  -- Where `v` is a matrix.
-  -- Returns row/column.
   local row = math.floor((flat_index - 1) / v:size(2)) + 1
   return row, (flat_index - 1) % v:size(2) + 1
 end
 
--- Class for managing the beam search process.
+--[[ Class for managing the beam search process. ]]
 local Beam = torch.class('Beam')
 
+--[[ Parameters:
+  * `size` : The beam `K`.
+]]
 function Beam:__init(size)
-  -- Takes the beam `size`. 
+
   self.size = size
   self.done = false
 
   -- The score for each translation on the beam.
   self.scores = torch.FloatTensor(size):zero()
-  
+
   -- The backpointers at each time-step.
   self.prev_ks = { torch.LongTensor(size):fill(1) }
 
-  -- The outputs at each time-step. 
+  -- The outputs at each time-step.
   self.next_ys = { torch.LongTensor(size):fill(constants.PAD) }
 
   -- The attentions (matrix) for each time.
@@ -32,26 +40,33 @@ function Beam:__init(size)
   self.next_ys[1][1] = constants.BOS
 end
 
+--[[ Get the outputs for the current timestep.]]
 function Beam:get_current_state()
-  -- Get the outputs for the current timestep.
   return self.next_ys[#self.next_ys]
 end
 
+--[[ Get the backpointers for the current timestep.]]
 function Beam:get_current_origin()
-  -- Get the backpointers for the current timestep.
   return self.prev_ks[#self.prev_ks]
 end
 
+--[[ Given prob over words for every last beam `out` and attention
+   `attn_out`. Compute and update the beam search.
+
+  Parameters:
+  * `out`: probs at the last step
+  * `attn_out`: attention at the last step
+
+  Returns:
+  true if beam search is complete.
+--]]
 function Beam:advance(out, attn_out)
-  -- Given prob over words for every last beam `out` and attention
-  -- `attn_out`. Compute and update the beam search. 
-  -- Returns true if beam search is complete. 
 
   -- The flattened scores.
   local flat_out
 
   if #self.prev_ks > 1 then
-    -- Sum the previous scores. 
+    -- Sum the previous scores.
     for k = 1, self.size do
       out[k]:add(self.scores[k])
     end
@@ -100,9 +115,15 @@ function Beam:get_best()
   return scores[1], ids[1]
 end
 
+--[[ Walk back to construct the full hypothesis `k`.
+  Parameters:
+  * `k`: the position in the beam to construct.
+
+  Returns:
+  1. The hypothesis
+  2. the attention at each time step.
+--]]
 function Beam:get_hyp(k)
-  -- Walk back to construct the full hypothesis `k`.
-  -- Return `hyp` and the attention at each time step.
   local hyp = {}
   local attn = {}
 

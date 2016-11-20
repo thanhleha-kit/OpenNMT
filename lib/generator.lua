@@ -4,7 +4,7 @@ local cuda = require 'lib.utils.cuda'
 require 'lib.model'
 
 -- Generator manages both the final post-LSTM linear/softmax
--- layer and the criterion. Currently it is just a holder used 
+-- layer and the criterion. Currently it is just a holder used
 -- by the decoder.
 
 
@@ -12,7 +12,7 @@ local function build_network(vocab_size, rnn_size)
   -- Builds a layer for predicting words.
   -- Layer used maps from (h^L) => (V).
   local inputs = {}
-  table.insert(inputs, nn.Identity()()) 
+  table.insert(inputs, nn.Identity()())
 
   local map = nn.Linear(rnn_size, vocab_size)(inputs[1])
 

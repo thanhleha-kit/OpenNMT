@@ -30,9 +30,8 @@ function Checkpoint:save(file_path, info)
   torch.save(file_path, data)
 end
 
+--[[ Save the model and data in the middle of an epoch sorting the iteration. ]]
 function Checkpoint:save_iteration(iteration, epoch_state, batch_order)
-  -- Save the model and data in the middle of an epoch sorting the
-  -- iteration. 
   local info = {}
   info.iteration = iteration + 1
   info.epoch = epoch_state.epoch

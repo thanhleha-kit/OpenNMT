@@ -2,18 +2,21 @@ local model_utils = require 'lib.utils.model_utils'
 local Encoder = require 'lib.encoder'
 require 'lib.model'
 
--- Encoder is a bidirectional Sequencer used for the source language.
+
 
 local function reverse_input(batch)
   batch.source_input, batch.source_input_rev = batch.source_input_rev, batch.source_input
   batch.source_input_pad_left, batch.source_input_rev_pad_left = batch.source_input_rev_pad_left, batch.source_input_pad_left
 end
 
+--[[ BiEncoder is a bidirectional Sequencer used for the source language. ]]
 local BiEncoder, Model = torch.class('BiEncoder', 'Model')
 
+--[[ Creates two Encoder's (encoder.lua) `net_fwd` and `net_bwd`.
+  The two are combined use `merge` operation (concat/sum).
+]]
+
 function BiEncoder:__init(args, merge, net_fwd, net_bwd)
-  -- Creates two Encoder's (encoder.lua) `net_fwd` and `net_bwd`.
-  -- The two are combined use `merge` operation (concat/sum).
   Model.__init(self)
 
   -- Preallocate full context vector.

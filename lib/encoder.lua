@@ -2,14 +2,15 @@ local model_utils = require 'lib.utils.model_utils'
 local table_utils = require 'lib.utils.table_utils'
 require 'lib.sequencer'
 
--- Encoder is a unidirectional Sequencer used for the source language.
+--[[ Encoder is a unidirectional Sequencer used for the source language.]]
 local Encoder, Sequencer = torch.class('Encoder', 'Sequencer')
 
+--[[ Constructor takes global `args` and optional `network`.]]
 function Encoder:__init(args, network)
   Sequencer.__init(self, 'enc', args, network)
   self.mask_padding = args.mask_padding or false
 
-  -- Preallocate context vector. 
+  -- Preallocate context vector.
   self.context_proto = torch.zeros(args.max_batch_size, args.max_sent_length, args.rnn_size)
 
   if args.training then
@@ -22,21 +23,28 @@ function Encoder:__init(args, network)
   end
 end
 
+--[[ Call to change the `batch_size`. ]]
 function Encoder:resize_proto(batch_size)
-  -- Call to change the `batch_size`.
   Sequencer.resize_proto(self, batch_size)
   self.context_proto:resize(batch_size, self.context_proto:size(2), self.context_proto:size(3))
 end
 
+--[[ Compute the context representation of an input.
+
+  TODO: Change `batch` to `input`.
+
+  Parameters:
+  * `batch` - a struct as defined data.lua.
+
+  Returns:
+  1. last hidden states
+  2. context matrix H
+--]]
 function Encoder:forward(batch)
-  -- Compute the context representation of an input.
-  -- `batch` is a struct as defined data.lua.
-  -- Output is last hidden states and context matrix H.
-  -- TODO: Change `batch` to `input`.
-  
+
   local final_states
 
-  -- Make initial states c_0, h_0. 
+  -- Make initial states c_0, h_0.
   local states = model_utils.reset_state(self.states_proto, batch.size)
 
   -- Preallocated output matrix.
@@ -63,7 +71,7 @@ function Encoder:forward(batch)
       self.inputs[t] = inputs
     end
 
-    -- TODO: Shouldn't this just be self:net? 
+    -- TODO: Shouldn't this just be self:net?
     states = Sequencer.net(self, t):forward(inputs)
 
 
@@ -93,14 +101,17 @@ function Encoder:forward(batch)
   return final_states, context
 end
 
+--[[ Backward pass (only called during training)
+  TODO: change this to (input, gradOutput) as in nngraph.
+
+  Parameters:
+  * `batch` - must be same as for forward
+  * `grad_states_output`
+  * `grad_context_output` - gradient of loss
+      wrt last states and context.
+--]]
 function Encoder:backward(batch, grad_states_output, grad_context_output)
-  -- Backward pass (only called during training)
-  -- `batch` must be same as for forward
-  -- `grad_states_output` `grad_context_output` gradient of loss
-  --    wrt last states and context.
-  -- 
-  -- TODO: change this to (input, gradOutput) as in nngraph. 
-  
+
   local grad_states_input = model_utils.copy_state(self.grad_out_proto, grad_states_output, batch.size)
 
   for t = batch.source_length, 1, -1 do

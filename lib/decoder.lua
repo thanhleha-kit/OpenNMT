@@ -3,14 +3,24 @@ local table_utils = require 'lib.utils.table_utils'
 local cuda = require 'lib.utils.cuda'
 require 'lib.sequencer'
 
+
+--[[ Decoder is the sequencer for the target words.]]
+local Decoder, Sequencer = torch.class('Decoder', 'Sequencer')
+
+--[[
+  Apply a mask to make sure no attention is given to padding.
+  Parameters:
+  * `source_sizes` -  the true lengths (with left padding).
+  * `source_length` - the max length in the batch `beam_size`.
+  * `beam_size`
+
+  Returns:
+  * A nngraph that applies a soft max on input that gives no weight to the left padding.
+
+  TODO:
+  * better names for these variables.
+--]]
 local function masked_softmax(source_sizes, source_length, beam_size)
-  -- Apply a mask to make sure no attention is given to padding.
-  -- Here `source_length` is the max length in the batch `beam_size`.
-  -- And `source_sizes` are the true lengths (with left padding). 
-  -- This code returns a nngraph that applies a soft max on input
-  -- that gives no weight to the left padding.  
-  --
-  -- TODO: better names for these variables.
 
   local num_sents = source_sizes:size(1)
   local input = nn.Identity()()
@@ -57,17 +67,11 @@ local function masked_softmax(source_sizes, source_length, beam_size)
 end
 
 
--- Decoder is the sequencer for the target words. 
-
-local Decoder, Sequencer = torch.class('Decoder', 'Sequencer')
-
-
 function Decoder:__init(args, network)
   Sequencer.__init(self, 'dec', args, network)
-
-  -- Input feeding means the decoder takes an extra 
-  -- vector each time representing the attention at the 
-  -- previous step. 
+  -- Input feeding means the decoder takes an extra
+  -- vector each time representing the attention at the
+  -- previous step.
   self.input_feed = args.input_feed
   if self.input_feed then
     self.input_feed_proto = torch.zeros(args.max_batch_size, args.rnn_size)
@@ -100,17 +104,19 @@ function Decoder:__init(args, network)
   end
 end
 
+--[[ Call to change the `batch_size`.
+
+  TODO: rename.
+]]
 function Decoder:resize_proto(batch_size)
-  -- Call to change the `batch_size`.
-  -- TODO: rename.
   Sequencer.resize_proto(self, batch_size)
   if self.input_feed then
     self.input_feed_proto:resize(batch_size, self.input_feed_proto:size(2)):zero()
   end
 end
 
+--[[ Update internals to prepare for new batch.]]
 function Decoder:reset(source_sizes, source_length, beam_size)
-  -- Update internally to prepare for new batch.
   self.decoder_attn:replace(function(module)
     if module.name == 'softmax_attn' then
       local mod
@@ -130,13 +136,20 @@ function Decoder:reset(source_sizes, source_length, beam_size)
   end)
 end
 
+--[[ Run one step of the decoder.
+  
+Parameters:
+ * `input` - sparse input (1)
+ * `prev_states` - stack of hidden states (batch x layers*model x rnn_size)
+ * `context` - encoder output (batch x n x rnn_size)
+ * `prev_out` - previous distribution (batch x #words)
+ * `t` - current timestep
+
+Returns:
+ 1. `out` - Top-layer Hidden state
+ 2. `states` - All states
+--]]
 function Decoder:forward_one(input, prev_states, context, prev_out, t)
-  -- Run one step of the decoder. 
-  -- input: sparse input [1]
-  -- prev_states: stack of hidden states [batch x layers*model x rnn_size]
-  -- context: encoder output [batch x n x rnn_size]
-  -- prev_out: previous distribution [batch x #words]
-  -- t: current timestep 
   local inputs = {}
 
   -- Create RNN input (see sequencer.lua `build_network('dec')`).
@@ -167,11 +180,15 @@ function Decoder:forward_one(input, prev_states, context, prev_out, t)
   return out, states
 end
 
+--[[Compute all forward steps.
+
+  Parameters:
+  * `batch` - based on data.lua
+  * `encoder_states`
+  * `context`
+  * `func` - Calls `func(out, t)` each timestep.
+--]]
 function Decoder:forward_and_apply(batch, encoder_states, context, func)
-  -- Compute the forward step of a `batch` based on 
-  -- `context` matrix and initial encoder states.
-  --
-  -- Calls `func(out, t)` each timestep.
   local states = model_utils.copy_state(self.states_proto, encoder_states, batch.size)
 
   local prev_out
@@ -182,14 +199,17 @@ function Decoder:forward_and_apply(batch, encoder_states, context, func)
   end
 end
 
+--[[Compute all forward steps.
+
+Parameters:
+  * `batch` - based on data.lua
+  * `encoder_states`
+  * `context`
+
+Returns:
+  1. `outputs` - Top Hidden layer at each time-step.
+--]]
 function Decoder:forward(batch, encoder_states, context)
-  -- Compute the forward step of a `batch` based on 
-  -- `context` matrix and initial encoder states.
-  --
-  -- See data.lua for batch definition, encoder.lua for
-  -- states/context.
-  -- 
-  -- Outputs is the distribution over words at each timestep.
   if not self.eval_mode then
     self.inputs = {}
   end
@@ -220,8 +240,9 @@ function Decoder:compute_score(batch, encoder_states, context, generator)
   return score
 end
 
+--[[ Compute the loss on a batch based on final layer `generator`.]]
 function Decoder:compute_loss(batch, encoder_states, context, generator)
-  -- Compute the loss on a batch based on final layer `generator`.
+
   local loss = 0
   self:forward_and_apply(batch, encoder_states, context, function (out, t)
     local pred = generator.network:forward(out)
@@ -231,16 +252,15 @@ function Decoder:compute_loss(batch, encoder_states, context, generator)
   return loss
 end
 
+--[[ Compute the standard backward update.
+  With input `batch`, target `outputs`, and `generator`
+  Note: This code is both the standard backward and criterion forward/backward.
+  It returns both the gradInputs (ret 1 and 2) and the loss.
+
+  TODO: This object should own `generator` and or, generator should
+  control its own backward pass.
+]]
 function Decoder:backward(batch, outputs, generator)
-  -- Compute the standard backward update.
-  -- With input `batch`, target `outputs`, and `generator`
-  -- Note: This code is both the standard backward and criterion forward/backward.
-  -- It returns both the gradInputs (ret 1 and 2) and the loss.
-  --
-  -- TODO: This object should own `generator` and or, generator should
-  -- control its own backward pass. 
-
-
   local grad_states_input = model_utils.reset_state(self.grad_out_proto, batch.size)
   local grad_context_input = self.grad_context_proto[{{1, batch.size}, {1, batch.source_length}}]:zero()
 
@@ -251,7 +271,7 @@ function Decoder:backward(batch, outputs, generator)
 
   for t = batch.target_length, 1, -1 do
     -- Compute decoder output gradients.
-    -- Note: This would typically be in the forward pass. 
+    -- Note: This would typically be in the forward pass.
     local pred = generator.network:forward(outputs[t])
     loss = loss + generator.criterion:forward(pred, batch.target_output[t]) / batch.size
 

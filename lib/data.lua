@@ -1,27 +1,28 @@
 local cuda = require 'lib.utils.cuda'
 local constants = require 'lib.utils.constants'
 
--- Data management and batch creation.
+--[[ Data management and batch creation.
 
--- Batch interface [size]:
---  size: number of sentences in the batch [1]
---  source_length: max length in source batch [1]
---  source_size:  lengths of each source [batch x 1]
---  source_input:  left-padded idx's of source (PPPPPPABCDE) [batch x max]
---  source_input_rev: right-padded  idx's of source rev (EDCBAPPPPPP) [batch x max]
---  target_length: max length in source batch [1]
---  target_size: lengths of each source [batch x 1]
---  target_non_zeros: number of non-ignored words in batch [1]
---  target_input: input idx's of target (<S>ABCDEPPPPPP) [batch x max]
---  target_output: expected output idx's of target (ABCDE</S>PPPPPP) [batch x max]
+ Batch interface [size]:
+  * size: number of sentences in the batch [1]
+  * source_length: max length in source batch [1]
+  * source_size:  lengths of each source [batch x 1]
+  * source_input:  left-padded idx's of source (PPPPPPABCDE) [batch x max]
+  * source_input_rev: right-padded  idx's of source rev (EDCBAPPPPPP) [batch x max]
+  * target_length: max length in source batch [1]
+  * target_size: lengths of each source [batch x 1]
+  * target_non_zeros: number of non-ignored words in batch [1]
+  * target_input: input idx's of target (SABCDEPPPPPP) [batch x max]
+  * target_output: expected output idx's of target (ABCDESPPPPPP) [batch x max]
 
-By 
+ TODO: change name of size => maxlen
+--]]
+local Data = torch.class("Data")
 
--- TODO: change name of size => maxlen
-
+--[[ Return the max_length, sizes, and non-zero count
+  of a batch of `seq`s ignoring `ignore` words.
+--]]
 local function get_length(seq, ignore)
-  -- Return the max_length, sizes, and non-zero count
-  -- of a batch of `seq`s ignoring `ignore` words. 
   local sizes = torch.IntTensor(#seq):zero()
   local max = 0
   local sum = 0
@@ -38,17 +39,18 @@ local function get_length(seq, ignore)
   return max, sizes, sum
 end
 
-local Data = torch.class("Data")
-
+--[[ Initialize a data object given aligned tables of IntTensors `src`
+  and `targ`.
+--]]
 function Data:__init(src, targ)
-  -- Initialize a data object given aligned tables of IntTensors `src`
-  -- and `targ`.
+
   self.src = src
   self.targ = targ
 end
 
+--[[ Setup up the training data to respect `max_batch_size`. ]]
 function Data:set_batch_size(max_batch_size)
-  -- Setup up the training data to respect `max_batch_size`.
+
   self.batch_range = {}
   self.max_source_length = 0
   self.max_target_length = 0
@@ -84,8 +86,9 @@ function Data:set_batch_size(max_batch_size)
   end
 end
 
+--[[ Return number of batches. ]]
 function Data:__len__()
-  -- Number of batches.
+
   if self.batch_range == nil then
     return 1
   end
@@ -93,9 +96,10 @@ function Data:__len__()
   return #self.batch_range
 end
 
+--[[ Create a batch object given aligned sent tables `src` and `targ`
+  (optional). Data format is shown at the top of the file.
+--]]
 function Data:get_data(src, targ)
-  -- Create a batch object given aligned sent tables `src` and `targ`
-  -- (optional). Data format is shown at the top of the file.
 
   local batch = {}
   batch.size = #src
@@ -126,7 +130,7 @@ function Data:get_data(src, targ)
     if targ ~= nil then
       -- Input: [<s>ABCDE]
       -- Ouput: [ABCDE</s>]
-      local target_length = targ[b]:size(1) - 1 
+      local target_length = targ[b]:size(1) - 1
       local target_input = targ[b]:narrow(1, 1, target_length)
       local target_output = targ[b]:narrow(1, 2, target_length)
 
@@ -146,8 +150,8 @@ function Data:get_data(src, targ)
   return batch
 end
 
+--[[ Get batch `idx`. If nil make a batch of all the data. ]]
 function Data:get_batch(idx)
-  -- Get batch `idx`. If nil make a batch of all the data.
   if idx == nil or self.batch_range == nil then
     return self:get_data(self.src, self.targ)
   end
