@@ -4,23 +4,24 @@ local constants = require 'lib.utils.constants'
 -- Data management and batch creation.
 
 -- Batch interface [size]:
+--  size: number of sentences in the batch [1]
 --  source_length: max length in source batch [1]
 --  source_size:  lengths of each source [batch x 1]
---  source_input:  idx's of source [batch x max]
---  source_input_rev: idx's of source rev [batch x max]
---  target_length:
---  target_size:
---  target_non_zeros:
---  target_input:
---  target_output:
+--  source_input:  left-padded idx's of source (PPPPPPABCDE) [batch x max]
+--  source_input_rev: right-padded  idx's of source rev (EDCBAPPPPPP) [batch x max]
+--  target_length: max length in source batch [1]
+--  target_size: lengths of each source [batch x 1]
+--  target_non_zeros: number of non-ignored words in batch [1]
+--  target_input: input idx's of target (<S>ABCDEPPPPPP) [batch x max]
+--  target_output: expected output idx's of target (ABCDE</S>PPPPPP) [batch x max]
+
+By 
 
 -- TODO: change name of size => maxlen
 
-
-
-
 local function get_length(seq, ignore)
-  -- 
+  -- Return the max_length, sizes, and non-zero count
+  -- of a batch of `seq`s ignoring `ignore` words. 
   local sizes = torch.IntTensor(#seq):zero()
   local max = 0
   local sum = 0
@@ -37,27 +38,30 @@ local function get_length(seq, ignore)
   return max, sizes, sum
 end
 
-
-
 local Data = torch.class("Data")
 
 function Data:__init(src, targ)
+  -- Initialize a data object given aligned tables of IntTensors `src`
+  -- and `targ`.
   self.src = src
   self.targ = targ
 end
 
 function Data:set_batch_size(max_batch_size)
+  -- Setup up the training data to respect `max_batch_size`.
   self.batch_range = {}
   self.max_source_length = 0
   self.max_target_length = 0
 
-  -- Prepares batches in terms of range within self.src and self.targ
+  -- Prepares batches in terms of range within self.src and self.targ.
   local offset = 0
   local batch_size = 1
   local source_length = 0
   local target_length = 0
 
   for i = 1, #self.src do
+    -- Set up the offsets to make same source size batches of the
+    -- correct size.
     if batch_size == max_batch_size or self.src[i]:size(1) ~= source_length then
       if i > 1 then
         table.insert(self.batch_range, { ["begin"] = offset, ["end"] = i - 1 })
@@ -73,7 +77,7 @@ function Data:set_batch_size(max_batch_size)
 
     self.max_source_length = math.max(self.max_source_length, self.src[i]:size(1))
 
-    -- targ contains <s> and </s>
+    -- Target contains <s> and </s>.
     local target_seq_length = self.targ[i]:size(1) - 1
     target_length = math.max(target_length, target_seq_length)
     self.max_target_length = math.max(self.max_target_length, target_seq_length)
@@ -81,6 +85,7 @@ function Data:set_batch_size(max_batch_size)
 end
 
 function Data:__len__()
+  -- Number of batches.
   if self.batch_range == nil then
     return 1
   end
@@ -89,8 +94,10 @@ function Data:__len__()
 end
 
 function Data:get_data(src, targ)
-  local batch = {}
+  -- Create a batch object given aligned sent tables `src` and `targ`
+  -- (optional). Data format is shown at the top of the file.
 
+  local batch = {}
   batch.size = #src
 
   batch.source_length, batch.source_size = get_length(src)
@@ -108,17 +115,22 @@ function Data:get_data(src, targ)
     local source_input = src[b]
     local source_input_rev = src[b]:index(1, torch.linspace(batch.source_size[b], 1, batch.source_size[b]):long())
 
+    -- Source input is left padded [PPPPPPABCDE] .
     batch.source_input[{{source_offset, batch.source_length}, b}]:copy(source_input)
     batch.source_input_pad_left = true
 
+    -- Rev source input is right padded [EDCBAPPPPPP] .
     batch.source_input_rev[{{1, batch.source_size[b]}, b}]:copy(source_input_rev)
     batch.source_input_rev_pad_left = false
 
     if targ ~= nil then
-      local target_length = targ[b]:size(1) - 1 -- targ contains <s> and </s>
-      local target_input = targ[b]:narrow(1, 1, target_length) -- input starts with <s>
-      local target_output = targ[b]:narrow(1, 2, target_length) -- output ends with </s>
+      -- Input: [<s>ABCDE]
+      -- Ouput: [ABCDE</s>]
+      local target_length = targ[b]:size(1) - 1 
+      local target_input = targ[b]:narrow(1, 1, target_length)
+      local target_output = targ[b]:narrow(1, 2, target_length)
 
+      -- Target is right padded [<S>ABCDEPPPPPP] .
       batch.target_input[{{1, target_length}, b}]:copy(target_input)
       batch.target_output[{{1, target_length}, b}]:copy(target_output)
     end
@@ -131,11 +143,11 @@ function Data:get_data(src, targ)
     batch.target_input = cuda.convert(batch.target_input)
     batch.target_output = cuda.convert(batch.target_output)
   end
-
   return batch
 end
 
 function Data:get_batch(idx)
+  -- Get batch `idx`. If nil make a batch of all the data.
   if idx == nil or self.batch_range == nil then
     return self:get_data(self.src, self.targ)
   end

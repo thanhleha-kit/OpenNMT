@@ -2,8 +2,7 @@ local model_utils = require 'lib.utils.model_utils'
 local table_utils = require 'lib.utils.table_utils'
 require 'lib.sequencer'
 
--- Encoder is the Sequencer used for the source language.
-
+-- Encoder is a unidirectional Sequencer used for the source language.
 local Encoder, Sequencer = torch.class('Encoder', 'Sequencer')
 
 function Encoder:__init(args, network)

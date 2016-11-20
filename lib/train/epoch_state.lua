@@ -1,8 +1,11 @@
 require 'torch'
 
+-- Class for managing the training process by logging and storing 
+-- the state of the current epoch.
 local EpochState = torch.class("EpochState")
 
 function EpochState:__init(epoch, status)
+  -- Initialize for epoch `epoch` and training `status` (current loss)
   self.epoch = epoch
 
   if status ~= nil then
@@ -21,6 +24,8 @@ function EpochState:__init(epoch, status)
 end
 
 function EpochState:update(batch, loss)
+  -- Update training status. Takes `batch` (described in data.lua) and
+  -- last loss.
   self.num_words_source = self.num_words_source + batch.size * batch.source_length
   self.num_words_target = self.num_words_target + batch.size * batch.target_length
 
@@ -29,10 +34,10 @@ function EpochState:update(batch, loss)
 end
 
 function EpochState:log(batch_index, data_size, learning_rate)
+  -- Log to status stdout. 
+  -- TODO: these args shouldn't need to be passed in each time.
   local time_taken = self:get_time()
-
   local stats = ''
-
   stats = stats .. string.format('Epoch %d ; Batch %d/%d ; LR %.4f ; ',
                                  self.epoch, batch_index, data_size, learning_rate)
   stats = stats .. string.format('Throughput %d/%d/%d total/src/targ tokens/sec ; ',
