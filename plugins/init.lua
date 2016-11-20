@@ -16,10 +16,10 @@ function Plugins.list()
   return folderNames
 end
 
-function Plugins.load(listPlugins, cmd)
+function Plugins.load(listPlugins, opt)
   for plugin in string.gmatch(listPlugins, "[^, ]+") do
     local p = require('plugins.'..plugin..'.init')
-    p.init(cmd)
+    p.init(opt)
     Plugins['plugins'][plugin] = p
     print('Initializing plugin \''..plugin..'\'')
   end
