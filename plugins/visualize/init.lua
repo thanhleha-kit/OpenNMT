@@ -53,7 +53,8 @@ local function generateJSON(params)
 
     local s = Extension.neuron_dim
     for i=1,Extension.model_opt.num_layers do
-      table.insert(net, {type='lstm', mod='src', idx=t, level=i, value=to_table(Extension.encoder_layers[t][i].output[1][1])})
+      table.insert(net, {type='lstm', mod='src', lstmcell='h', idx=t, level=i, value=to_table(Extension.encoder_layers[t][i].output[2][1])})
+      table.insert(net, {type='lstm', mod='src', lstmcell='c', idx=t, level=i, value=to_table(Extension.encoder_layers[t][i].output[1][1])})
     end
 
   end
@@ -64,7 +65,8 @@ local function generateJSON(params)
     local s = Extension.neuron_dim
     for i=1,Extension.model_opt.num_layers do
       h=h-Extension.layer_spacing-Extension.neuron_dim
-      table.insert(net, {type='lstm', mod='tgt', idx=t, level=i, value=to_table(Extension.decoder_layers[t][i].output[1][1])})
+      table.insert(net, {type='lstm', mod='tgt', lstmcell='h', idx=t, level=i, value=to_table(Extension.decoder_layers[t][i].output[2][1])})
+      table.insert(net, {type='lstm', mod='tgt', lstmcell='c', idx=t, level=i, value=to_table(Extension.decoder_layers[t][i].output[1][1])})
     end
 
     local word=Extension.meanings[t]
