@@ -1,6 +1,7 @@
 -- svg visualization of the neural network for educative purpose
 
 require 'paths'
+json = require('json')
 
 local Extension = {
   hooks = {},
@@ -10,40 +11,16 @@ local Extension = {
   id = 0
 }
 
-local function getColorActivation(v)
-  local color
-  if v > 0 then
-    color = 'fill:#FFFF00'
-  else
-    color = 'fill:#00FFFF'
+local function to_table(t)
+  local T = {}
+  for i=1,t:size(1) do
+    table.insert(T, math.floor(t[i]*1000)/1000)
   end
-  v = math.abs(v) * 10
-  if v > 1 then v = 1 end
-  return color .. ';opacity:' .. v
+  return T
 end
 
-local function renderVector(px, py, t)
-  local svg = "<rect x='"..(px-1).."' y='"..(py-1).."' width='42' height='42' stroke='white' stroke-width='1' />"
-  for i=1, 10 do
-    for j=1, 10 do
-      local color=getColorActivation(t[1][i+(j-1)*10])
-      svg = svg .. "<rect x='"..(px+(i-1)*4).."' y='"..(py+(j-1)*4).."' width='4' height='4' style='"..color..";stroke-width:0' />"
-    end
-  end
-  return svg
-end
-
--- protect html entities in word
-local function protect(word)
-  word = string.gsub(word, "&", "&amp;")
-  word = string.gsub(word, "<", "&lt;")
-  word = string.gsub(word, ">", "&gt;")
-  return word
-end
-
-local function generateSVG(params)
+local function generateJSON(params)
   local file = io.open(paths.concat(Extension.dir,Extension.prefix..'-'..Extension.id..".json"), "w")
-  file:write("[\n")
   if Extension.encoder_layers == nil then
     local model = Extension.model
     Extension.encoder_layers = {}
@@ -67,29 +44,18 @@ local function generateSVG(params)
     end
   end
 
+  local net={}
   local batch = params.batch
   for t = 1,batch.source_length do
-    local word=protect(Extension.src_dict:lookup(batch.source_input[t][1]))
-    local h=Extension.height-20
-    file:write("  [ \"src_"..t.."\", \"<text x='"..((t-1)*55+30).."' y='"..h.."' text-anchor='middle' fill='white' font-size='10px'>"..word.."</text>\"],\n")
-    h=h-10-Extension.layer_spacing-40
-    file:write("  [ \"lkp_"..t.."\", \""..renderVector(10+(t-1)*55,h,Extension.word_vecs[t].output).."\"],\n")
+    local word=Extension.src_dict:lookup(batch.source_input[t][1])
+    table.insert(net, {type='word', mod='src', idx=t, value=word})
+    table.insert(net, {type='lkp', mod='src', idx=t, value=to_table(Extension.word_vecs[t].output[1])})
 
     local s = Extension.neuron_dim
     for i=1,Extension.model_opt.num_layers do
-      h=h-Extension.layer_spacing-Extension.neuron_dim
-      file:write("  [ \"srclstm_"..i.."\", \"")
-      for j=1,Extension.model_opt.rnn_size do
-        -- if we are doing a batch, take only the first sentence
-        local value=Extension.encoder_layers[t][i].output[1][1][j]
-        local color=getColorActivation(value)
-        file:write("<rect x='"..(s*j).."' y='"..h.."' width='"..s.."' height='"..s.."' style='"..color..";stroke-width:0' />")
-      end
-      file:write("\"],\n")
+      table.insert(net, {type='lstm', mod='src', idx=t, level=i, value=to_table(Extension.encoder_layers[t][i].output[1][1])})
     end
 
-    h=h-Extension.layer_spacing-40
-    file:write("  [ \"contextsrc"..t.."\", \""..renderVector(10+(t-1)*55,h,Extension.encoder_layers[t][Extension.model_opt.num_layers].output[1]).."\"],\n")
   end
 
   for t = 1,batch.target_length do
@@ -98,28 +64,15 @@ local function generateSVG(params)
     local s = Extension.neuron_dim
     for i=1,Extension.model_opt.num_layers do
       h=h-Extension.layer_spacing-Extension.neuron_dim
-      file:write("  [ \"tgtlstm_"..i.."\", \"");
-      for j=1,Extension.model_opt.rnn_size do
-        -- if we are doing a batch, take only the first sentence
-        local value=Extension.decoder_layers[t][i].output[1][1][j]
-        local color=getColorActivation(value)
-        file:write("<rect x='"..(s*j).."' y='"..h.."' width='"..s.."' height='"..s.."' style='"..color..";stroke-width:0' />")
-      end
-      file:write("\"],\n")
+      table.insert(net, {type='lstm', mod='tgt', idx=t, level=i, value=to_table(Extension.decoder_layers[t][i].output[1][1])})
     end
 
-    h=h-Extension.layer_spacing-40
-    file:write("  [ \"contexttgt"..t.."\", \""..renderVector(10+(t-1)*55,h,Extension.decoder_layers[t][Extension.model_opt.num_layers].output[1]).."\"],\n")
-    h=h-20
-    local word=protect(Extension.meanings[t])
-    file:write("  [ \"pred_"..t.."\", \"<text x='"..((t-1)*55+30).."'' y='"..h.."' text-anchor='middle' fill='red' font-size='10px'>"..word.."</text>\"],\n")
-    h=h-20
-    word=protect(Extension.targ_dict:lookup(batch.target_input[t][1]))
-    file:write("  [ \"ref_"..t.."\", \"<text x='"..((t-1)*55+30).."'' y='"..h.."' text-anchor='middle' fill='blue' font-size='10px'>"..word.."</text>\"]")
-    if t ~= batch.target_length then file:write(",") end
-    file:write("\n")
+    local word=Extension.meanings[t]
+    table.insert(net, {type='word', mod='tgt', idx=t, value=word})
+    word=Extension.targ_dict:lookup(batch.target_input[t][1])
+    table.insert(net, {type='word', mod='ref', idx=t, value=word})
   end
-  file:write("]")
+  file:write(json.encode(net))
   file:close()
   Extension.id = Extension.id+1
 end
@@ -146,7 +99,7 @@ local function modelInitalized(params)
 end
 
 function Extension.init(opt)
-  Extension.hooks['training:after_batch'] = generateSVG
+  Extension.hooks['training:after_batch'] = generateJSON
   Extension.hooks['decoder:tok_generation'] = record_tok_generation
   Extension.hooks['model_initialized'] = modelInitalized
   Extension.dir = opt['visualize:dir']
