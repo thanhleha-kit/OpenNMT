@@ -222,7 +222,7 @@ local function train(model, train_data, valid_data, dataset, info)
         checkpoint:save_iteration(i, epoch_state, batch_order)
       end
 
-      Plugins.triggerHooks('training:after_batch', {model=model, batch=batch})
+      Plugins.triggerHooks('training:after_batch', {model=model, batch=batch, loss=loss, epoch=epoch})
     end
 
     return epoch_state
