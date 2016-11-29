@@ -1,4 +1,5 @@
--- svg visualization of the neural network for educative purpose
+-- generate a JSON dump of the neural network for education visualization purpose
+-- require torch json library (luarocks install --server=http://rocks.moonscript.org/manifests/amrhassan --local json4Lua)
 
 require 'paths'
 json = require('json')
