@@ -22,7 +22,8 @@ addons:
     - g++ 
     - curl
     - cmake 
-    - libreadline-dev 
+    - libreadline-dev
+    - luacheck
     - git-core 
     - libqt4-core 
     - libqt4-gui
@@ -49,6 +50,8 @@ before_script:
 - cd $ROOT_TRAVIS_DIR
 - export LD_LIBRARY_PATH=${INSTALL_PREFIX}/lib:$LD_LIBRARY_PATH
 script:
-- cd $ROOT_TRAVIS_DIR
+- pwd
+- ls
+- echo ${ROOT_TRAVIS_DIR}
 - export TESTLUA=$(which luajit lua | head -n 1)
 - ${TESTLUA} -llib.test -e "t=onmt.test(); if t.errors[1] then os.exit(1) end"
