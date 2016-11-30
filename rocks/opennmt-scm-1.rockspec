@@ -2,7 +2,7 @@ package = "opennmt"
 version = "scm-1"
 
 source = {
-   url = "git://github.com/torch/graph",
+   url = "git://github.com/opennmt/opennmt",
    tag = "master"
 }
 
