@@ -1,11 +1,23 @@
 require('lib.onmt.init')
 require('lib.data')
+
 local mytester = torch.Tester()
 
 local nmttest = torch.TestSuite()
 
-function nmttest.Data()
+local function equal(t1, t2, msg)
+   if (torch.type(t1) == "table") then
+      for k, v in pairs(t2) do
+         equal(t1[k], t2[k], msg)
+      end
+   else
+      mytester:eq(t1, t2, 0.00001, msg)
+   end
+end
 
+
+function nmttest.Data()
+  
 end
 
 mytester:add(nmttest)

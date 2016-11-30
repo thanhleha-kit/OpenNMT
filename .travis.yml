@@ -52,6 +52,7 @@ before_script:
 - ${INSTALL_PREFIX}/bin/luarocks install torch
 - ${INSTALL_PREFIX}/bin/luarocks install nn
 - ${INSTALL_PREFIX}/bin/luarocks install nngraph
+- ${INSTALL_PREFIX}/bin/luarocks install luacheck
 script:
 - luacheck *lua lib/
 - ${INSTALL_PREFIX}/bin/luarocks make rocks/opennmt-scm-1.rockspec
