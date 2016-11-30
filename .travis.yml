@@ -1,7 +1,6 @@
 language: c
 compiler:
   - gcc
-  - clang
 cache:
   directories:
   - $HOME/OpenBlasInstall
@@ -50,5 +49,6 @@ before_script:
 - cd $ROOT_TRAVIS_DIR
 - export LD_LIBRARY_PATH=${INSTALL_PREFIX}/lib:$LD_LIBRARY_PATH
 script:
+- cd $ROOT_TRAVIS_DIR
 - export TESTLUA=$(which luajit lua | head -n 1)
 - ${TESTLUA} -llib.test -e "t=onmt.test(); if t.errors[1] then os.exit(1) end"
