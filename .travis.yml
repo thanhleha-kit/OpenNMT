@@ -54,9 +54,9 @@ before_script:
 - ${INSTALL_PREFIX}/bin/luarocks install nngraph
 - ${INSTALL_PREFIX}/bin/luarocks install luacheck
 script:
+- export PATH=${INSTALL_PREFIX}/bin:$PATH
 - luacheck *lua lib/
 - ${INSTALL_PREFIX}/bin/luarocks make rocks/opennmt-scm-1.rockspec
-- export PATH=${INSTALL_PREFIX}/bin:$PATH
 - echo ${ROOT_TRAVIS_DIR}
 - export TESTLUA=$(which luajit lua | head -n 1)
 - ${TESTLUA} -llib.test -e "t=onmt.test(); if t.errors[1] then os.exit(1) end"
