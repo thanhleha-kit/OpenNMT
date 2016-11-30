@@ -54,7 +54,6 @@ before_script:
 - ${INSTALL_PREFIX}/bin/luarocks install nngraph
 script:
 - luacheck *lua lib/
-- which luajit lua
 - ${INSTALL_PREFIX}/bin/luarocks make rocks/opennmt-scm-1.rockspec
 - export PATH=${INSTALL_PREFIX}/bin:$PATH
 - echo ${ROOT_TRAVIS_DIR}
