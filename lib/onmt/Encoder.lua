@@ -13,6 +13,19 @@
 Inherits from [onmt.Sequencer](lib+onmt+Sequencer).
 --]]
 local Encoder, parent = torch.class('onmt.Encoder', 'onmt.Sequencer')
+local argcheck = require 'argcheck'
+
+local check_encoder_args = argcheck {
+      { name= "vocab_size", type="number",              help="vocabulary size" },
+      { name= "rnn_size", type="number",                help="rnn size" },
+      { name= "num_layers", type="number",              help="number of layers" },
+      { name= "dropout", type="number",                 help="dropout value" },
+      { name= "word_vec_size", type="number",           help="word embedding size" },
+      { name= "pre_word_vecs", type="string", opt=true, help="path to precomputed word vec" },
+      { name= "fix_word_vecs", type="boolean",          help="when using precomputed word vec, if the word vec is fixed" },
+      { name= "features", type="table",                 help="feature table" },
+      { name= "feat_vec_exponent", type="number",       help="exponent for feature vector embedding size" }
+}
 
 --[[ Construct an encoder layer.
 
@@ -22,6 +35,8 @@ Parameters:
   * `network` - optional recurrent step template.
 ]]
 function Encoder:__init(args, network)
+  check_encoder_args(args)
+
   parent.__init(self, args, network or self:_buildModel(args))
 
   -- Prototype for preallocated context vector.
