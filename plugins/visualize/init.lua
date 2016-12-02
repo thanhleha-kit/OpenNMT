@@ -13,7 +13,25 @@ local Extension = {
 local function to_table(t)
   local T = {}
   for i=1,t:size(1) do
-    table.insert(T, math.floor(t[i]*1000)/1000)
+    table.insert(T, math.floor(t[i]*500)/100)
+  end
+  return T
+end
+
+local function to_tableL(L,size)
+  local T = {}
+  for j=1,size do
+    local R={}
+    for i=1,4*size do
+      table.insert(R, math.floor(L[1][i][j]*50))
+    end
+    for i=1,4 do
+      table.insert(R, math.floor(L[2][(j-1)*4+i]*50))
+    end
+    for i=1,4*size do
+      table.insert(R, math.floor(L[3][i][j]*50))
+    end
+    table.insert(T,R)
   end
   return T
 end
@@ -26,7 +44,9 @@ local function generateJSON(params)
     for t=1, #model.encoder.network_clones do
       Extension.encoder_layers[t]={}
       model.encoder:net(t):apply(function(m)
-        if m.name == 'lstm' then table.insert(Extension.encoder_layers[t],m) end
+        if m.name == 'lstm' then
+          table.insert(Extension.encoder_layers[t],m)
+        end
         if m.name == 'word_vecs' then table.insert(Extension.word_vecs,m) end
       end)
     end
@@ -38,7 +58,9 @@ local function generateJSON(params)
     for t=1, #model.decoder.network_clones do
       Extension.decoder_layers[t]={}
       model.decoder:net(t):apply(function(m)
-        if m.name == 'lstm' then table.insert(Extension.decoder_layers[t],m) end
+        if m.name == 'lstm' then
+          table.insert(Extension.decoder_layers[t],m)
+        end
         if m.name == 'softmax_attn' then table.insert(Extension.softmax_attns, m) end
       end)
     end
@@ -53,7 +75,8 @@ local function generateJSON(params)
 
     local s = Extension.neuron_dim
     for i=1,Extension.model_opt.num_layers do
-      table.insert(net, {type='lstm', mod='src', lstmcell='h', idx=t, level=i, value=to_table(Extension.encoder_layers[t][i].output[2][1])})
+      local p, gp=Extension.encoder_layers[1][i]:parameters()
+      table.insert(net, {type='lstm', mod='src', lstmcell='params', idx=t, level=i, value=to_tableL(p,Extension.model_opt.rnn_size)})
       table.insert(net, {type='lstm', mod='src', lstmcell='c', idx=t, level=i, value=to_table(Extension.encoder_layers[t][i].output[1][1])})
     end
 
@@ -62,7 +85,8 @@ local function generateJSON(params)
   for t = 1,batch.target_length do
     table.insert(net, {type='attn', idx=t, value=to_table(Extension.softmax_attns[t].output[1])})
     for i=1,Extension.model_opt.num_layers do
-      table.insert(net, {type='lstm', mod='tgt', lstmcell='h', idx=t, level=i, value=to_table(Extension.decoder_layers[t][i].output[2][1])})
+      local p, gp=Extension.decoder_layers[1][i]:parameters()
+      table.insert(net, {type='lstm', mod='src', lstmcell='params', idx=t, level=i, value=to_tableL(p,Extension.model_opt.rnn_size)})
       table.insert(net, {type='lstm', mod='tgt', lstmcell='c', idx=t, level=i, value=to_table(Extension.decoder_layers[t][i].output[1][1])})
     end
 
