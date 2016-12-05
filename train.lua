@@ -192,7 +192,11 @@ local function train(model, train_data, valid_data, dataset, info)
       batch_order = info.batch_order
     else
       epoch_state = EpochState.new(epoch)
+      -- make sure batch are always in same order for visualization purpose
+      local rand = torch.random()
+      torch.manualSeed(0)
       batch_order = torch.randperm(#train_data) -- shuffle mini batch order
+      torch.manualSeed(rand)
     end
 
     opt.start_iteration = 1
@@ -222,7 +226,7 @@ local function train(model, train_data, valid_data, dataset, info)
         checkpoint:save_iteration(i, epoch_state, batch_order)
       end
 
-      Plugins.triggerHooks('training:after_batch', {model=model, batch=batch, loss=loss, epoch=epoch})
+      Plugins.triggerHooks('training:after_batch', {model=model, batch=batch, loss=loss, epoch=epoch, idx=i})
     end
 
     return epoch_state

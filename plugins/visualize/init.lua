@@ -23,13 +23,13 @@ local function to_tableL(L,size)
   for j=1,size do
     local R={}
     for i=1,4*size do
-      table.insert(R, math.floor(L[1][i][j]*50))
+      table.insert(R, math.floor(math.abs(L[1][i][j]*50)))
     end
     for i=1,4 do
-      table.insert(R, math.floor(L[2][(j-1)*4+i]*50))
+      table.insert(R, math.floor(math.abs(L[2][(j-1)*4+i]*50)))
     end
     for i=1,4*size do
-      table.insert(R, math.floor(L[3][i][j]*50))
+      table.insert(R, math.floor(math.abs(L[3][i][j]*50)))
     end
     table.insert(T,R)
   end
@@ -77,26 +77,29 @@ local function generateJSON(params)
     for i=1,Extension.model_opt.num_layers do
       local p, gp=Extension.encoder_layers[1][i]:parameters()
       table.insert(net, {type='lstm', mod='src', lstmcell='params', idx=t, level=i, value=to_tableL(p,Extension.model_opt.rnn_size)})
-      table.insert(net, {type='lstm', mod='src', lstmcell='c', idx=t, level=i, value=to_table(Extension.encoder_layers[t][i].output[1][1])})
     end
-
+    table.insert(net, {type='lstm', mod='src', lstmcell='c', idx=t, level=Extension.model_opt.num_layers,
+                                      value=to_table(Extension.encoder_layers[t][Extension.model_opt.num_layers].output[1][1])})
   end
 
   for t = 1,batch.target_length do
+    local tgtword=Extension.meanings[t]
+    local refword=Extension.targ_dict:lookup(batch.target_input[t][1])
+    if refword == '<blank>' then break end
     table.insert(net, {type='attn', idx=t, value=to_table(Extension.softmax_attns[t].output[1])})
     for i=1,Extension.model_opt.num_layers do
       local p, gp=Extension.decoder_layers[1][i]:parameters()
-      table.insert(net, {type='lstm', mod='src', lstmcell='params', idx=t, level=i, value=to_tableL(p,Extension.model_opt.rnn_size)})
-      table.insert(net, {type='lstm', mod='tgt', lstmcell='c', idx=t, level=i, value=to_table(Extension.decoder_layers[t][i].output[1][1])})
+      table.insert(net, {type='lstm', mod='tgt', lstmcell='params', idx=t, level=i, value=to_tableL(p,Extension.model_opt.rnn_size)})
     end
 
-    local word=Extension.meanings[t]
-    table.insert(net, {type='word', mod='tgt', idx=t, value=word})
-    word=Extension.targ_dict:lookup(batch.target_input[t][1])
-    table.insert(net, {type='word', mod='ref', idx=t, value=word})
+    table.insert(net, {type='lstm', mod='tgt', lstmcell='c', idx=t, level=Extension.model_opt.num_layers,
+                                     value=to_table(Extension.decoder_layers[t][Extension.model_opt.num_layers].output[1][1])})
+
+    table.insert(net, {type='word', mod='tgt', idx=t, value=tgtword})
+    table.insert(net, {type='word', mod='ref', idx=t, value=refword})
   end
-  local file = io.open(paths.concat(Extension.dir,Extension.prefix..'-'..Extension.id..".json"), "w")
-  local snapshot = { net=net, epoch=params.epoch, loss=params.loss, opt=Extension.model_opt}
+  local file = io.open(paths.concat(Extension.dir,Extension.prefix..'-'..params.epoch..':'..params.idx..".json"), "w")
+  local snapshot = { net=net, epoch=params.epoch, idx=params.idx, loss=params.loss, opt=Extension.model_opt}
   file:write(json.encode(snapshot))
   file:close()
   Extension.id = Extension.id+1
@@ -132,7 +135,7 @@ function Extension.init(opt)
 end
 
 function Extension.registerOptions(cmd)
-  cmd:option('-visualize:dir', '', [[directory where svg are stored]])
+  cmd:option('-visualize:dir', '', [[directory where json are saved]])
 end
 
 return Extension
