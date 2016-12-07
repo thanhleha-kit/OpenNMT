@@ -240,18 +240,18 @@ local function train_model(model, train_data, valid_data, dataset, info, log)
     opt.start_iteration = 1
     local iter = 1
 
-    for i = start_i, #train_data, utils.Parallel.count do
-      local batches = {}
-      local total_size = 0
+    for i = start_i, #train_data do
 
-      for j = 1, math.min(utils.Parallel.count, #train_data-i+1) do
-        local batch_idx = batch_order[i+j-1]
-        if epoch <= opt.curriculum then
-          batch_idx = i+j-1
-        end
-        table.insert(batches, train_data:get_batch(batch_idx))
-        total_size = total_size + batches[#batches].size
+      -- get random batch except if epoch less than curriculum
+      local batch_idx = batch_order[i]
+      if epoch <= opt.curriculum then
+        batch_idx = i
       end
+      local batch = train_data:get_batch(batch_idx, true)
+
+      -- split the batch on each GPU
+      local batches = train_data:distribute(batch, utils.Parallel.count)
+      local total_size = batch.size
 
       local losses = {}
 
@@ -345,7 +345,7 @@ local function main()
   print(string.format(' * maximum sequence length: source = %d; target = %d',
                       train_data.max_source_length, train_data.max_target_length))
   print(string.format(' * number of training sentences: %d', #train_data.src))
-  print(string.format(' * maximum batch size: %d', opt.max_batch_size * utils.Parallel.count))
+  print(string.format(' * maximum batch size: %d', opt.max_batch_size))
 
   local checkpoint = {}
 

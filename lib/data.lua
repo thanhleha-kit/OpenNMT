@@ -230,4 +230,37 @@ function Data:get_batch(idx)
   return self:get_data(src, src_features, targ, targ_features)
 end
 
+--[[ Slice nElem into n-th, return n-th slice. ]]
+local function sliceRange(nElem, idx, splits)
+   local eltsPerMod = nElem / splits
+   local rangeStart = math.ceil((idx - 1) * eltsPerMod) + 1
+   if idx == splits then
+      return rangeStart, nElem - rangeStart + 1
+   else
+      return rangeStart, math.ceil(idx * eltsPerMod) - rangeStart + 1
+   end
+end
+
+--[[ Slice batch into several smaller batcher for data parallelism. ]]
+function Data:distribute(batch, count)
+  local batches = {}
+  for idx = 1, count do
+    local index, size = sliceRange(batch.size, idx, count)
+    if size == 0 then
+      table.insert(batches, nil)
+    else
+      local b = {}
+      b.size = size
+      b.source_length = batch.source_length
+      b.target_length = batch.target_length
+      b.target_non_zeros = batch.target_non_zeros
+      b.source_input = batch.source_input:narrow(2, index, size)
+      b.target_input = batch.target_input:narrow(2, index, size)
+      b.target_output = batch.target_output:narrow(2, index, size)
+      table.insert(batches, b)
+    end
+  end
+  return batches
+end
+
 return Data
