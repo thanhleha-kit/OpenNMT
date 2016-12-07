@@ -226,13 +226,12 @@ local function train_model(model, train_data, valid_data, dataset, info, log)
     local batch_order
 
     local start_i = opt.start_iteration
-    local num_iterations = math.ceil(#train_data / utils.Parallel.count)
 
     if start_i > 1 and info ~= nil then
-      epoch_state = train.EpochState.new(epoch, num_iterations, optim:get_learning_rate(), info.epoch_status)
+      epoch_state = train.EpochState.new(epoch, #train_data, optim:get_learning_rate(), info.epoch_status)
       batch_order = info.batch_order
     else
-      epoch_state = train.EpochState.new(epoch, num_iterations, optim:get_learning_rate())
+      epoch_state = train.EpochState.new(epoch, #train_data, optim:get_learning_rate())
       -- shuffle mini batch order
       batch_order = torch.randperm(#train_data)
     end
