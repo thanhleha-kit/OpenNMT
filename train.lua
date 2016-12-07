@@ -263,7 +263,6 @@ local function train_model(model, train_data, valid_data, dataset, info, log)
 
         -- send batch data to GPU
         utils.Cuda.convert(_G.batch)
-        _G.batch.total_size = total_size
 
         optim:zero_grad(_G.grad_params)
 
@@ -272,18 +271,22 @@ local function train_model(model, train_data, valid_data, dataset, info, log)
 
         local enc_grad_states_out, grad_context, loss = _G.model.decoder:backward(_G.batch, dec_outputs, _G.criterion)
         _G.model.encoder:backward(_G.batch, enc_grad_states_out, grad_context)
+
+        -- update the parameters
+        if #batches > 1 then
+          optim:update_params(nil, _G.grad_params, opt.max_grad_norm)
+        else
+          optim:update_params(params[1], _G.grad_params, opt.max_grad_norm)
+        end
+
         return idx, loss
       end,
       function(idx, loss) losses[idx]=loss end)
 
-      -- accumulate the gradients from the different parallel threads
-      utils.Parallel.accGradParams(grad_params, batches)
-
-      -- update the parameters
-      optim:update_params(params[1], grad_params[1], opt.max_grad_norm)
-
-      -- sync the paramaters with the different parallel threads
-      utils.Parallel.syncParams(params)
+      if #batches > 1 then
+        -- accumulate the gradients from the different parallel threads
+        utils.Parallel.accGradParams(params, grad_params, batches)
+      end
 
       epoch_state:update(batches, losses)
 
