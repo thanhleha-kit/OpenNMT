@@ -49,10 +49,11 @@ function Parallel.init(args)
       ret, Parallel.usenccl = pcall(require, 'nccl')
       if not ret  then
         print("WARNING: for improved efficiency in nparallel mode - do install nccl")
+        Parallel.usenccl = nil
       elseif os.getenv('CUDA_LAUNCH_BLOCKING') == '1' then
         print("WARNING: CUDA_LAUNCH_BLOCKING set - cannot use nccl")
+        Parallel.usenccl = nil
       end
-      Parallel.usenccl = nil
     end
   end
 end
@@ -117,23 +118,9 @@ end
 
 --[[ Sync parameters from main model to different parallel threads. ]]
 function Parallel.syncParams(params)
-  if Parallel.count > 1 then
-    if not Parallel.usenccl then
-      for j = 2, Parallel.count do
-        for h = 1, #params[1] do
-          params[j][h]:copy(params[1][h])
-        end
-        waitForDevice(Parallel.gpus[j], Parallel.gpus[1])
-      end
-    else
-      for h = 1, #params[1] do
-        local inputs = { params[1][h] }
-        for j = 2, Parallel.count do
-          table.insert(inputs, params[j][h])
-        end
-        Parallel.usenccl.bcast(inputs, true, 1)
-      end
-    end
+  for j = 2, Parallel.count do
+    params[j]:copy(params[1])
+    waitForDevice(Parallel.gpus[j], Parallel.gpus[1])
   end
 end
 
