@@ -85,16 +85,18 @@ function Parallel.launch(label, closure, endcallback)
   end
 end
 
---[[ Accumulate the gradient parameters from the different parallel threads. ]]
-function Parallel.accGradParams(grad_params, batches)
+--[[ Accumulate the gradient parameters from the different replica. ]]
+function Parallel.accGradParams(params, grad_params, batches)
   if Parallel.count > 1 then
     for h = 1, #grad_params[1] do
-      local inputs = { grad_params[1][h] }
-      for j = 2, #batches do
-        if not Parallel.usenccl then
+        local param_replica = { params[1][h] }
+        local grad_replica = { grad_params[1][h] }
+        for j = 2, #batches do
           -- TODO - this is memory costly since we need to clone full parameters from one GPU to another
           -- to avoid out-of-memory, we can copy/add by batch
-
+          table.insert(param_replica, params[j][h])
+          table.insert(grad_replica, grad_params[j][h])
+          if not Parallel.usenccl then
          -- Synchronize before and after copy to ensure that it doesn't overlap
          -- with this add or previous adds
           waitForDevice(Parallel.gpus[j], Parallel.gpus[1])
@@ -102,12 +104,12 @@ function Parallel.accGradParams(grad_params, batches)
           remoteGrads:copy(grad_params[j][h])
           waitForDevice(Parallel.gpus[1], Parallel.gpus[j])
           grad_params[1][h]:add(remoteGrads)
-        else
-          table.insert(inputs, grad_params[j][h])
         end
-      end
-      if Parallel.usenccl then
-        Parallel.usenccl.reduce(inputs, nil, true)
+        if not Parallel.usenccl then
+          Parallel.syncParams(param_replica)
+        else
+          Parallel.usenccl.reduce(grad_replica, param_replica, true)
+        end
       end
     end
   end

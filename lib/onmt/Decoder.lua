@@ -380,7 +380,7 @@ function Decoder:backward(batch, outputs, criterion)
     local gen_grad_out = criterion:backward(pred, output)
 
     for j = 1, #gen_grad_out do
-      gen_grad_out[j]:div(batch.total_size)
+      gen_grad_out[j]:div(batch.size)
     end
 
     -- Compute the final layer gradient.

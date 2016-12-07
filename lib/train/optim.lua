@@ -102,7 +102,10 @@ function Optim:update_params(params, grad_params, max_grad_norm)
     elseif self.method == 'adam' then
       adam_step(params[j], grad_params[j], self.learning_rate, self.optim_states[j])
     else
-      params[j]:add(grad_params[j]:mul(-self.learning_rate))
+      grad_params[j]:mul(-self.learning_rate)
+      if params then
+        params[j]:add(grad_params[j])
+      end
     end
   end
 end
