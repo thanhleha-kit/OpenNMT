@@ -199,7 +199,6 @@ local function train_model(model, train_data, valid_data, dataset, info, log)
     -- optimize memory of the first clone
     if not opt.disable_mem_optimization then
       local batch = utils.Cuda.convert(train_data:get_batch(1))
-      batch.total_size = batch.size
       utils.Memory.optimize(_G.model, _G.criterion, batch, verbose)
     end
 
@@ -242,7 +241,6 @@ local function train_model(model, train_data, valid_data, dataset, info, log)
 
     for i = start_i, #train_data, utils.Parallel.count do
       local batches = {}
-      local total_size = 0
 
       for j = 1, math.min(utils.Parallel.count, #train_data-i+1) do
         local batch_idx = batch_order[i+j-1]
@@ -250,7 +248,6 @@ local function train_model(model, train_data, valid_data, dataset, info, log)
           batch_idx = i+j-1
         end
         table.insert(batches, train_data:get_batch(batch_idx))
-        total_size = total_size + batches[#batches].size
       end
 
       local losses = {}
