@@ -258,12 +258,23 @@ function Data:distribute(batch, count)
       b.source_input_rev = batch.source_input:narrow(2, index, size)
       b.target_input = batch.target_input:narrow(2, index, size)
       b.target_output = batch.target_output:narrow(2, index, size)
-      b.source_size = batch.source_size:narrow(2, index, size)
-      b.target_size = batch.target_size:narrow(2, index, size)
+      b.source_size = batch.source_size:narrow(1, index, size)
+      b.target_size = batch.target_size:narrow(1, index, size)
 
-      source_input_features = {}
-      source_input_rev_features = {}
-      source_output_features = {}
+      b.source_input_features = {}
+      b.source_input_rev_features = {}
+      for j = 1, #batch.source_input_features do
+        table.insert(b.source_input_features, batch.source_input_features[j]:narrow(2, index, size))
+        table.insert(b.source_input_rev_features, batch.source_input_rev_features[j]:narrow(2, index, size))
+      end
+
+      b.target_input_features = {}
+      b.target_output_features = {}
+      for j = 1, #batch.target_input_features do
+        table.insert(b.target_input_features, batch.target_input_features[j]:narrow(2, index, size))
+        table.insert(b.target_output_features, batch.target_output_features[j]:narrow(2, index, size))
+      end
+
       table.insert(batches, b)
     end
   end
