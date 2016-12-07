@@ -92,6 +92,9 @@ function Parallel.accGradParams(params, grad_params, batches)
     for h = 1, #grad_params[1] do
       local param_replica = { params[1][h] }
       local grad_replica = { grad_params[1][h] }
+      if not Parallel.usenccl then
+        params[1][h]:add(grad_params[1][h])
+      end
       for j = 2, #batches do
         -- TODO - this is memory costly since we need to clone full parameters from one GPU to another
         -- to avoid out-of-memory, we can copy/add by batch
