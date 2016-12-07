@@ -104,7 +104,7 @@ function Parallel.accGradParams(params, grad_params, batches)
           local remoteGrads = utils.Tensor.reuseTensor(Parallel.gradBuffer, grad_params[j][h]:size())
           remoteGrads:copy(grad_params[j][h])
           waitForDevice(Parallel.gpus[1], Parallel.gpus[j])
-          grad_params[1][h]:add(remoteGrads)
+          params[1][h]:add(remoteGrads)
         end
       end
       if not Parallel.usenccl then
