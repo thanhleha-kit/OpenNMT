@@ -8,7 +8,7 @@ local function adagrad_step(x, dfdx, lr, state)
 
   state.var:addcmul(1, dfdx, dfdx)
   state.std:sqrt(state.var)
-  x:addcdiv(-lr, dfdx, state.std:add(1e-10))
+  dfdx:cdiv(state.std:add(1e-10)):mul(-lr)
 end
 
 local function adam_step(x, dfdx, lr, state)
@@ -29,7 +29,8 @@ local function adam_step(x, dfdx, lr, state)
   local bias1 = 1-beta1^state.t
   local bias2 = 1-beta2^state.t
   local stepSize = lr * math.sqrt(bias2)/bias1
-  x:addcdiv(-stepSize, state.m, state.denom)
+  torch.cdiv(dfdx, state.m, state.denom)
+  dfdx:mul(-stepSize)
 
 end
 
@@ -43,7 +44,7 @@ local function adadelta_step(x, dfdx, lr, state)
   state.var:mul(rho):addcmul(1-rho, dfdx, dfdx)
   state.std:copy(state.var):add(eps):sqrt()
   state.delta:copy(state.accDelta):add(eps):sqrt():cdiv(state.std):cmul(dfdx)
-  x:add(-lr, state.delta)
+  dfdx:copy(state.delta):mul(-lr)
   state.accDelta:mul(rho):addcmul(1-rho, state.delta, state.delta)
 end
 
@@ -78,7 +79,7 @@ function Optim:zero_grad(grad_params)
   end
 end
 
-function Optim:update_params(params, grad_params, max_grad_norm)
+function Optim:prepare_grad(grad_params, max_grad_norm)
   -- compute gradients norm
   local grad_norm = 0
   for j = 1, #grad_params do
@@ -94,18 +95,15 @@ function Optim:update_params(params, grad_params, max_grad_norm)
       grad_params[j]:mul(shrinkage)
     end
 
-    -- update params according to the optimization method
+    -- prepare grad according to optimization method
     if self.method == 'adagrad' then
-      adagrad_step(params[j], grad_params[j], self.learning_rate, self.optim_states[j])
+      adagrad_step(grad_params[j], self.learning_rate, self.optim_states[j])
     elseif self.method == 'adadelta' then
-      adadelta_step(params[j], grad_params[j], self.learning_rate, self.optim_states[j])
+      adadelta_step(grad_params[j], self.learning_rate, self.optim_states[j])
     elseif self.method == 'adam' then
-      adam_step(params[j], grad_params[j], self.learning_rate, self.optim_states[j])
+      adam_step(grad_params[j], self.learning_rate, self.optim_states[j])
     else
       grad_params[j]:mul(-self.learning_rate)
-      if params then
-        params[j]:add(grad_params[j])
-      end
     end
   end
 end
