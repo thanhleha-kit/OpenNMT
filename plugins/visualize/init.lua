@@ -82,9 +82,9 @@ local function generateJSON(params)
                                       value=to_table(Extension.encoder_layers[t][Extension.model_opt.num_layers].output[1][1])})
   end
 
-  for t = 1,batch.target_length do
+  for t = 1,batch.target_length-1 do
     local tgtword=Extension.meanings[t]
-    local refword=Extension.targ_dict:lookup(batch.target_input[t][1])
+    local refword=Extension.targ_dict:lookup(batch.target_input[t+1][1])
     if refword == '<blank>' then break end
     table.insert(net, {type='attn', idx=t, value=to_table(Extension.softmax_attns[t].output[1])})
     for i=1,Extension.model_opt.num_layers do
