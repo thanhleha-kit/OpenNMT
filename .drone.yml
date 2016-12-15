@@ -3,5 +3,5 @@ build:
     image: harvardnlp/opennmt:8.0
     commands:
       - luarocks install luacheck
-      - luacheck *lua onmt/
+
 
