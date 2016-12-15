@@ -1,6 +1,8 @@
+
 build:
-  image: harvardnlp/opennmt:8.0
-  commands:
-    - luarocks install luacheck
+  unit_tests:
+    image: harvardnlp/opennmt:8.0
+    commands:
+      - luarocks install luacheck
 
 
