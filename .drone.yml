@@ -1,3 +1,15 @@
-image: harvardnlp/opennmt:8.0
-script:
-  - echo hello world
+build:
+  unit_tests:
+    image: harvardnlp/opennmt:8.0
+    commands:
+      - luarocks install luacheck
+      - luacheck *lua onmt/
+
+  integration_tests:
+    image: ubuntu:16.04
+    environment:
+      PASSWORD: $$PASSWORD
+    commands:
+      - npm run integration
+    when:
+      event: push
