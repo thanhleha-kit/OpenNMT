@@ -5,11 +5,3 @@ build:
       - luarocks install luacheck
       - luacheck *lua onmt/
 
-  integration_tests:
-    image: node
-    environment:
-      PASSWORD: $$PASSWORD
-    commands:
-      - npm run integration
-    when:
-      event: push
