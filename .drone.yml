@@ -4,6 +4,10 @@ build:
     image: harvardnlp/opennmt:8.0
     commands:
       - luarocks install luacheck
+      - git clone https://github.com/deepmind/torch-dokx.git 
+      - cd torch-dokx; luarocks make dokx-0-0.rockspec; cd ..
+      - dokx-build-package-docs  -o doc/ .
+      - cd doc/; bash mkdocs.sh; cd ..
       - luacheck *lua onmt/
       - th -lonmt.test -e "t=onmt.test(); if t.errors[1] then os.exit(1) end"
 
