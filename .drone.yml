@@ -4,5 +4,6 @@ build:
     image: harvardnlp/opennmt:8.0
     commands:
       - luarocks install luacheck
-
+      - luacheck *lua onmt/
+      - th -lonmt.test -e "t=onmt.test(); if t.errors[1] then os.exit(1) end"
 
