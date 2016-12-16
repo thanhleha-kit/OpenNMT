@@ -1,12 +1,11 @@
 
 build:
   unit_tests:
-
     image: harvardnlp/opennmt:8.0
     environment:
-      SLACK: $$SLACK_TOKEN
+      - SLACK=$$SLACK_TOKEN
     commands:
-      - echo $$SLACK
+      - echo $SLACK
       - luarocks install luacheck
       - git clone https://github.com/deepmind/torch-dokx.git 
       - cd torch-dokx; luarocks make dokx-0-0.rockspec; cd ..
