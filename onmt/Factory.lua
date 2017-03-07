@@ -168,8 +168,13 @@ function Factory.buildDecoder(opt, inputNetwork, generator, verbose)
       _G.logger:info(' * using context gate attention')
     end
   end
-
-  return onmt.Decoder.new(inputNetwork, rnn, generator, opt.attention, opt.input_feed == 1)
+  
+  if opt.len_pred == false then
+	return onmt.Decoder.new(inputNetwork, rnn, generator, opt.attention, opt.input_feed == 1)
+  else
+    _G.logger:info('Predicting the target sequence length for decoder')
+	return onmt.DecoderLenPredictor.new(inputNetwork, rnn, generator, opt.attention, opt.input_feed == 1)
+  end
 end
 
 function Factory.buildWordDecoder(opt, dicts, verbose)
@@ -185,7 +190,11 @@ function Factory.loadDecoder(pretrained, clone)
   if clone then
     pretrained = onmt.utils.Tensor.deepClone(pretrained)
   end
-
+  
+  if pretrained.decoder.args.lenPrediction == true then
+	_G.logger:info('Predicting the target sequence length for decoder')
+	return onmt.DecoderLenPredictor.load(pretrained)
+  end
   return onmt.Decoder.load(pretrained)
 end
 

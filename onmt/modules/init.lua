@@ -4,6 +4,7 @@ require('onmt.modules.Sequencer')
 require('onmt.modules.Encoder')
 require('onmt.modules.BiEncoder')
 require('onmt.modules.Decoder')
+require('onmt.modules.DecoderLenPredictor')
 
 require('onmt.modules.Network')
 

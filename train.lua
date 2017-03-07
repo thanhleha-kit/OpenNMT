@@ -68,6 +68,8 @@ local function main()
 
   local trainData = onmt.data.Dataset.new(dataset.train.src, dataset.train.tgt)
   local validData = onmt.data.Dataset.new(dataset.valid.src, dataset.valid.tgt)
+  
+  
 
   trainData:setBatchSize(opt.max_batch_size)
   validData:setBatchSize(opt.max_batch_size)
@@ -87,7 +89,9 @@ local function main()
   _G.logger:info(' * maximum batch size: %d', opt.max_batch_size)
 
   _G.logger:info('Building model...')
-
+  
+  onmt.Constants.MAX_TARGET_LENGTH = trainData.maxTargetLength
+ 
   local model
 
   -- Build or load model from checkpoint and copy to GPUs.

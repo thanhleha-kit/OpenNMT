@@ -5,18 +5,28 @@
 local function eval(model, data)
   local loss = 0
   local totalWords = 0
+  local totalSent = 0
 
   model:evaluate()
+  local totLenLoss = 0
 
   for i = 1, data:batchCount() do
     local batch = onmt.utils.Cuda.convert(data:getBatch(i))
-    loss = loss + model:forwardComputeLoss(batch)
+    local mainLoss, lenLoss = model:forwardComputeLoss(batch)
+    loss = loss + mainLoss
     totalWords = totalWords + model:getOutputLabelsCount(batch)
+    totalSent = totalSent + batch.size
+    
+    if lenLoss then
+		totLenLoss = totLenLoss + lenLoss
+    end
   end
 
   model:training()
-
-  return math.exp(loss / totalWords)
+	
+  local mainLoss = loss / totalWords
+    
+  return math.exp(loss / totalWords), math.exp(totLenLoss / totalSent)
 end
 
 ------------------------------------------------------------------------------------------------------------------
@@ -267,11 +277,15 @@ function Trainer:train(model, optim, trainData, validData, dataset, info)
     globalProfiler:stop('train')
 
     globalProfiler:start('valid')
-    local validPpl = eval(model, validData)
+    local validPpl, validLenPPl = eval(model, validData)
     globalProfiler:stop('valid')
 
     if self.args.profiler then _G.logger:info('profile: %s', globalProfiler:log()) end
     _G.logger:info('Validation perplexity: %.2f', validPpl)
+    
+    if model.lenPred == true then
+		_G.logger:info('Validation perplexity for length prediction: %.2f', validLenPPl)
+    end
 
     optim:updateLearningRate(validPpl, epoch)
 
