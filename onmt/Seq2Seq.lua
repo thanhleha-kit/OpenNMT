@@ -35,7 +35,6 @@ local options = {
                          {valid=onmt.utils.ExtendedCmdLine.fileNullOrExists}},
   {'-fix_word_vecs_enc', false, [[Fix word embeddings on the encoder side]]},
   {'-fix_word_vecs_dec', false, [[Fix word embeddings on the decoder side]]},
-  {'-len_pred', false, [[Predict the target sequence's length using context information only. ]]},
   {'-dropout', 0.3, [[Dropout probability. Dropout is applied between vertical LSTM stacks.]]}
 }
 
@@ -50,8 +49,6 @@ function Seq2Seq:__init(args, dicts, verbose)
   self.models.encoder = onmt.Factory.buildWordEncoder(args, dicts.src, verbose)
   self.models.decoder = onmt.Factory.buildWordDecoder(args, dicts.tgt, verbose)
   self.criterion = onmt.ParallelClassNLLCriterion(onmt.Factory.getOutputSizes(dicts.tgt))
-  
-  self.lenPred = self.models.decoder.args.lenPrediction
 end
 
 function Seq2Seq.load(args, models, dicts, isReplica)
@@ -63,8 +60,6 @@ function Seq2Seq.load(args, models, dicts, isReplica)
   self.models.encoder = onmt.Factory.loadEncoder(models.encoder, isReplica)
   self.models.decoder = onmt.Factory.loadDecoder(models.decoder, isReplica)
   self.criterion = onmt.ParallelClassNLLCriterion(onmt.Factory.getOutputSizes(dicts.tgt))
-  
-  self.lenPred = self.models.decoder.args.lenPrediction
 
   return self
 end
@@ -92,13 +87,7 @@ end
 
 function Seq2Seq:forwardComputeLoss(batch)
   local encoderStates, context = self.models.encoder:forward(batch)
-  local mainLoss = self.models.decoder:computeLoss(batch, encoderStates, context, self.criterion)
-  
-  if self.lenPred == true then
-	local lenLoss = self.models.decoder:computeLenLoss(batch, context)
-	return mainLoss, lenLoss
-  end
-  return mainLoss
+  return self.models.decoder:computeLoss(batch, encoderStates, context, self.criterion)
 end
 
 function Seq2Seq:trainNetwork(batch, dryRun)
@@ -110,7 +99,7 @@ function Seq2Seq:trainNetwork(batch, dryRun)
     decOutputs = onmt.utils.Tensor.recursiveClone(decOutputs)
   end
 
-  local encGradStatesOut, gradContext, loss = self.models.decoder:backward(batch, context, decOutputs, self.criterion)
+  local encGradStatesOut, gradContext, loss = self.models.decoder:backward(batch, decOutputs, self.criterion)
   self.models.encoder:backward(batch, encGradStatesOut, gradContext)
 
   return loss
