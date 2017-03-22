@@ -2,7 +2,7 @@ package = "opennmt"
 version = "scm-1"
 
 source = {
-  url = "/project/mt2017/user/pquan/Torch7/OpenNMT",
+  url = "./",
   tag = "master"
 }
 
@@ -80,6 +80,7 @@ build = {
     ["onmt.utils.String"] = "onmt/utils/String.lua",
     ["onmt.utils.Table"] = "onmt/utils/Table.lua",
     ["onmt.utils.Tensor"] = "onmt/utils/Tensor.lua",
+    ["onmt.utils.BLEU"] = "onmt/utils/BLEU.lua",
     ["onmt.Constants"] = "onmt/Constants.lua",
     ["onmt.Factory"] = "onmt/Factory.lua",
     ["onmt.ModelSelector"] = "onmt/ModelSelector.lua",

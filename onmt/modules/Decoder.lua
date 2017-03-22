@@ -45,6 +45,11 @@ function Decoder:__init(inputNetwork, rnn, generator, attention, inputFeed)
   
   -- Attention type
   self.args.attention = attention
+  
+  -- backward compatibility 
+  if self.args.attention == nil then 
+		self.args.attention = 'global'
+	end
 
   parent.__init(self, self:_buildModel())
 
@@ -153,10 +158,11 @@ function Decoder:_buildModel()
   -- Compute the attention here using h^L as query.
   
   local attnLayer
+  print(self.args.attention)
   if self.args.attention == 'global' then
-	attnLayer = onmt.GlobalAttention(self.args.rnnSize)
+		attnLayer = onmt.GlobalAttention(self.args.rnnSize)
   elseif self.args.attention == 'cgate' then
-	attnLayer = onmt.ContextGateAttention(self.args.rnnSize)
+		attnLayer = onmt.ContextGateAttention(self.args.rnnSize)
   end
   
   attnLayer.name = 'decoderAttn'
