@@ -28,7 +28,7 @@ Parameters:
   * `generator` - optional, an output [onmt.Generator](onmt+modules+Generator).
   * `inputFeed` - bool, enable input feeding.
 --]]
-function Decoder:__init(inputNetwork, rnn, generator, attention, inputFeed, coverage)
+function Decoder:__init(inputNetwork, rnn, generator, attention, inputFeed, coverage, memoryArgs)
   self.rnn = rnn
   self.inputNet = inputNetwork
 
@@ -49,10 +49,20 @@ function Decoder:__init(inputNetwork, rnn, generator, attention, inputFeed, cove
   if self.args.coverageSize == nil then 
 		self.args.coverageSize = 0
 	end
-	
+
 	if self.args.attention == nil then
 		self.args.attention = 'global'
 	end
+	
+		
+  if memoryArgs and memoryArgs.nmem_slots > 0 and memoryArgs.mem_size > 0 then
+	self.args.useMemory = true
+	self.args.nMemSlots = memoryArgs.nmem_slots
+	self.args.memSize = memoryArgs.mem_size
+  else
+	self.args.useMemory = false
+  end
+   
   
   
   -- Attention type
@@ -118,6 +128,12 @@ function Decoder:resetPreallocation()
   self.gradHiddenProto = torch.Tensor()
   
   self.samplingProto = torch.Tensor()
+  
+  -- Prototype for preallocated memory input and gradient
+  if self.args.useMemory == true then
+	self.memInputProto = torch.Tensor()
+	self.gradMemProto = torch.Tensor()
+  end
 end
 
 --[[ Build a default one time-step of the decoder
@@ -134,6 +150,8 @@ Returns: An nn-graph mapping
   ${a}$ is the context vector computed at this timestep.
 --]]
 function Decoder:_buildModel()
+  print(self.args)
+
   local inputs = {}
   local states = {}
 
@@ -165,6 +183,14 @@ function Decoder:_buildModel()
 	coverageVector = nn.Identity()() -- batchSize x coverageSize
 	table.insert(inputs, coverageVector)
 	self.args.inputIndex.coverage = #inputs
+  end
+  
+  local memoryMatrix
+  if self.args.useMemory == true then
+	_G.logger:info(" * Using an external memory at the decoder - Turing Machine concept")
+	memoryMatrix = nn.Identity()()
+	table.insert(inputs, memoryMatrix)
+	self.args.inputIndex.memory = #inputs
   end
 
   -- Compute the input network.
@@ -200,15 +226,21 @@ function Decoder:_buildModel()
   
   attnLayer.name = 'decoderAttn'
   
+  local finalHidden = outputs[#outputs]
+  
+  if self.args.useMemory == true then
+	finalHidden = onmt.MemoryReader(self.args.rnnSize, self.args.memSize, self.args.nMemSlots)({finalHidden, memoryMatrix})
+  end
+  
   -- prepare input for the attention module
-  local attnInput = {outputs[#outputs], context}
+  local attnInput = {finalHidden, context}
   if self.args.coverageSize > 0 then
 	table.insert(attnInput, coverageVector)
   end
   
   local attnOutput = attnLayer(attnInput)
   
-  
+  -- update the coverage vector
   local nextCoverage
   if self.args.coverageSize > 0 then
 	attnOutput = {attnOutput:split(2)}
@@ -217,10 +249,21 @@ function Decoder:_buildModel()
 	table.insert(outputs, nextCoverage)
   end
   
+  -- write new value to the memory tape
+  local newMemory
+  if self.args.useMemory == true then
+	newMemory = onmt.MemoryWriter(self.args.rnnSize, self.args.memSize, self.args.nMemSlots)({attnOutput, memoryMatrix})
+	table.insert(outputs, newMemory)
+	self.args.outputIndex.memory = #outputs
+  end
+  
   if self.rnn.dropout > 0 then
     attnOutput = nn.Dropout(self.rnn.dropout)(attnOutput)
+    self.args.outputIndex.coverage = #outputs
   end
   table.insert(outputs, attnOutput)
+  
+  --~ print(outputs)
   return nn.gModule(inputs, outputs)
 end
 
@@ -275,7 +318,7 @@ Returns:
  1. `out` - Top-layer hidden state.
  2. `states` - All states.
 --]]
-function Decoder:forwardOne(input, prevStates, context, prevOut, prevCoverage, t)
+function Decoder:forwardOne(input, prevStates, context, prevOut, prevCoverage, prevMem, t)
   local inputs = {}
 
   -- Create RNN input (see sequencer.lua `buildNetwork('dec')`).
@@ -304,6 +347,13 @@ function Decoder:forwardOne(input, prevStates, context, prevOut, prevCoverage, t
 	end
 	table.insert(inputs, prevCoverage)
   end
+  
+  if self.args.useMemory == true then
+	if prevMem == nil then -- initialize the memory
+		prevMem = onmt.utils.Tensor.reuseTensor(self.memInputProto, {inputSize, self.args.nMemSlots, self.args.memSize})
+	end
+	table.insert(inputs, prevMem)
+  end
 
   -- Remember inputs for the backward pass.
   if self.train then
@@ -320,16 +370,24 @@ function Decoder:forwardOne(input, prevStates, context, prevOut, prevCoverage, t
   
   local nOutputs = 1
   local nextCoverage = nil
+  local nextMem = nil
+  
+  if self.args.useMemory == true then
+	nextMem = outputs[#outputs - nOutputs]
+	nOutputs = nOutputs + 1
+  end
+  
   if self.args.coverageSize > 0 then
-	nOutputs = 2
-	nextCoverage = outputs[#outputs - 1] -- update the coverage vector
+	nextCoverage = outputs[#outputs - nOutputs]
+	nOutputs = nOutputs+1
+	 -- update the coverage vector
   end
   
   for i = 1, #outputs - nOutputs do
     table.insert(states, outputs[i])
   end
 
-  return out, nextCoverage, states
+  return out, nextCoverage, nextMem, states
 end
 
 --[[Compute all forward steps.
@@ -353,10 +411,10 @@ function Decoder:forwardAndApply(batch, encoderStates, context, func)
 
   local states = onmt.utils.Tensor.copyTensorTable(self.statesProto, encoderStates)
 
-  local prevOut, prevCoverage
+  local prevOut, prevCoverage, prevMem
 
   for t = 1, batch.targetLength do
-    prevOut, prevCoverage, states = self:forwardOne(batch:getTargetInput(t), states, context, prevOut, prevCoverage, t)
+    prevOut, prevCoverage, prevMem, states = self:forwardOne(batch:getTargetInput(t), states, context, prevOut, prevCoverage, prevMem, t)
     func(prevOut, t)
   end
 end
@@ -417,6 +475,11 @@ function Decoder:backward(batch, outputs, criterion)
 	table.insert(gradStatesInput, gradCoverageOutput)
   end
   
+  if self.args.useMemory == true then
+	local gradMemOutput = onmt.utils.Tensor.reuseTensor(self.gradMemProto, {batch.size, self.args.nMemSlots, self.args.memSize})
+	table.insert(gradStatesInput, gradMemOutput)
+  end
+  
   local gradHiddenProto = onmt.utils.Tensor.reuseTensor(self.gradHiddenProto, {batch.size, self.args.rnnSize})
   table.insert(gradStatesInput, gradHiddenProto)
 
@@ -456,7 +519,12 @@ function Decoder:backward(batch, outputs, criterion)
     if self.args.coverageSize > 0  then
 	  --~ gradStatesInput[#gradStatesInput-1]:zero()
 	  --~ gradStatesInput[#gradStatesInput-1]:add(gradInput[self.args.inputIndex.coverage])
-	  gradStatesInput[#gradStatesInput-1] = gradInput[self.args.inputIndex.coverage]
+	  gradStatesInput[self.args.outputIndex.coverage] = gradInput[self.args.inputIndex.coverage]
+    end
+    
+    -- Accumulate gradients for the memory
+    if self.args.useMemory == true then
+	  gradStatesInput[self.args.outputIndex.memory] = gradInput[self.args.inputIndex.memory]
     end
 
     -- Prepare next decoder output gradients.

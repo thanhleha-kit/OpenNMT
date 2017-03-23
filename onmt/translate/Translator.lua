@@ -187,10 +187,10 @@ function Translator:translateBatch(batch)
 
   -- Save memory by only keeping track of necessary elements in the states.
   -- Attentions are at index 4 in the states defined in onmt.translate.DecoderAdvancer.
-  local attnIndex = 4
+  local attnIndex = onmt.Constants.attnIndex
 
   -- Features are at index 6 in the states defined in onmt.translate.DecoderAdvancer.
-  local featsIndex = 6
+  local featsIndex = onmt.Constants.featsIndex
 
   advancer:setKeptStateIndexes({attnIndex, featsIndex})
 

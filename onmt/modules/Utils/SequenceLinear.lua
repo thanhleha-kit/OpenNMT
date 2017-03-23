@@ -32,6 +32,8 @@ function SequenceLinear:_buildModel(inputDim, outputDim, bias)
 	
 end
 
+-- when we update output, we have to reset the size of the viewer
+-- since batchsize and seqlength can change depending on the input
 function SequenceLinear:updateOutput(input)
 
 	local batchSize = input:size(1)

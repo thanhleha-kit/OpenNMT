@@ -25,7 +25,7 @@ local options = {
   {'-residual', false, [[Add residual connections between RNN layers.]]},
   {'-attention', 'global', [[Attention type: global|cgate. Global is the typical one, cgate is global with context gate]]},
   {'-brnn', false, [[Use a bidirectional encoder]]},
-  {'-brnn_merge', 'sum', [[Merge action for the bidirectional hidden states]],
+  {'-brnn_merge', 'concat', [[Merge action for the bidirectional hidden states]],
                      {enum={'concat','sum'}}},
   {'-pre_word_vecs_enc', '', [[If a valid path is specified, then this will load
                                      pretrained word embeddings on the encoder side.
@@ -37,7 +37,9 @@ local options = {
                          {valid=onmt.utils.ExtendedCmdLine.fileNullOrExists}},
   {'-fix_word_vecs_enc', false, [[Fix word embeddings on the encoder side]]},
   {'-fix_word_vecs_dec', false, [[Fix word embeddings on the decoder side]]},
-  {'-dropout', 0.3, [[Dropout probability. Dropout is applied between vertical LSTM stacks.]]}
+  {'-dropout', 0.3, [[Dropout probability. Dropout is applied between vertical LSTM stacks.]]},
+  {'-nmem_slots', 0, [[Number of Memory slot for the Turing machine]], {valid=onmt.utils.ExtendedCmdLine.isUInt()}},
+  {'-mem_size', 0, [[Memory size for the Turing machine]], {valid=onmt.utils.ExtendedCmdLine.isUInt()}}
 }
 
 function Seq2Seq.declareOpts(cmd)

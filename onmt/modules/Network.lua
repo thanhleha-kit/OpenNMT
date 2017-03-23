@@ -8,6 +8,7 @@ function Network:__init(net)
 end
 
 function Network:updateOutput(input)
+  --~ print(self.net)
   self.output = self.net:updateOutput(input)
   return self.output
 end

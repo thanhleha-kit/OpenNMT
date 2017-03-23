@@ -47,8 +47,9 @@ function CoverageAttention:_buildModel(dim, coverageDim)
   context = nn.CAddTable()({context, transformedCoverage})
   
   -- Get attention.
-  local attn = nn.MM()({context, nn.Replicate(1,3)(targetT)}) -- batchL x sourceL x 1
-  attn = nn.Sum(3)(attn)
+  local attn = onmt.CosineAddressing()({targetT, context})
+  --~ local attn = nn.MM()({context, nn.Replicate(1,3)(targetT)}) -- batchL x sourceL x 1
+  --~ attn = nn.Sum(3)(attn)
   local softmaxAttn = nn.SoftMax()
   softmaxAttn.name = 'softmaxAttn'
   local alignmentVector = softmaxAttn(attn)
@@ -67,9 +68,11 @@ function CoverageAttention:_buildModel(dim, coverageDim)
   local gatedContext = nn.CMulTable()({contextGate, contextVector})
   local gatedInput   = nn.CMulTable()({inputGate, inputs[1]})
   
-  local gatedContextCombined = nn.JoinTable(2)({gatedContext, gatedInput})
+  --~ local gatedContextCombined = nn.JoinTable(2)({gatedContext, gatedInput})
   
-  local contextOutput = nn.Tanh()(nn.Linear(dim*2, dim, false)(gatedContextCombined))
+  --~ local contextOutput = nn.Tanh()(nn.Linear(dim*2, dim, false)(gatedContextCombined))
+  
+  local contextOutput = onmt.JoinLinear(dim, nn.Tanh, false)({gatedContext, gatedInput})
   
   -- Also reupdate the coverage vector
   

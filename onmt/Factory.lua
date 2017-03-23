@@ -168,8 +168,12 @@ function Factory.buildDecoder(opt, inputNetwork, generator, verbose)
       _G.logger:info(' * using context gate attention')
     end
   end
+  
+  local memoryArgs = {}
+  memoryArgs.mem_size = opt.mem_size
+  memoryArgs.nmem_slots = opt.nmem_slots
 
-  return onmt.Decoder.new(inputNetwork, rnn, generator, opt.attention, opt.input_feed == 1, opt.coverage)
+  return onmt.Decoder.new(inputNetwork, rnn, generator, opt.attention, opt.input_feed == 1, opt.coverage, memoryArgs)
 end
 
 function Factory.buildWordDecoder(opt, dicts, verbose)
