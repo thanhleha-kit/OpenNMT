@@ -38,6 +38,7 @@ require('onmt.modules.Utils.CosineAddressing')
 -- Memory modules
 require('onmt.modules.Memory.MemoryReader')
 require('onmt.modules.Memory.MemoryWriter')
+require('onmt.modules.Memory.GRUModule')
 
 
 

@@ -47,9 +47,9 @@ function CoverageAttention:_buildModel(dim, coverageDim)
   context = nn.CAddTable()({context, transformedCoverage})
   
   -- Get attention.
-  local attn = onmt.CosineAddressing()({targetT, context})
-  --~ local attn = nn.MM()({context, nn.Replicate(1,3)(targetT)}) -- batchL x sourceL x 1
-  --~ attn = nn.Sum(3)(attn)
+  --~ local attn = onmt.CosineAddressing()({targetT, context})
+  local attn = nn.MM()({context, nn.Replicate(1,3)(targetT)}) -- batchL x sourceL x 1
+  attn = nn.Sum(3)(attn)
   local softmaxAttn = nn.SoftMax()
   softmaxAttn.name = 'softmaxAttn'
   local alignmentVector = softmaxAttn(attn)

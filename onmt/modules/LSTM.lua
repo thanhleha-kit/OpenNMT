@@ -33,19 +33,22 @@ Parameters:
   * `dropout` - Dropout rate to use.
   * `residual` - Residual connections between layers.
 --]]
-function LSTM:__init(layers, inputSize, hiddenSize, dropout, residual, dropout_input)
+function LSTM:__init(layers, inputSize, hiddenSize, dropout, residual, dropout_input, bn)
   dropout = dropout or 0
+  dropout_input = dropout_input or false
+  bn = bn or true
 
   self.dropout = dropout
   self.numEffectiveLayers = 2 * layers
   self.outputSize = hiddenSize
   self.dropout_input = dropout_input
+  self.bn = bn or true
 
-  parent.__init(self, self:_buildModel(layers, inputSize, hiddenSize, dropout, residual, dropout_input))
+  parent.__init(self, self:_buildModel(layers, inputSize, hiddenSize, dropout, residual, dropout_input, self.bn))
 end
 
 --[[ Stack the LSTM units. ]]
-function LSTM:_buildModel(layers, inputSize, hiddenSize, dropout, residual, dropout_input)
+function LSTM:_buildModel(layers, inputSize, hiddenSize, dropout, residual, dropout_input, bn)
   local inputs = {}
   local outputs = {}
 
@@ -75,7 +78,7 @@ function LSTM:_buildModel(layers, inputSize, hiddenSize, dropout, residual, drop
       if residual and (L > 2 or inputSize == hiddenSize) then
         input = nn.CAddTable()({input, prevInput})
       end
-      if dropout > 0 then
+      if dropout > 0 and dropout_input == true then
         input = nn.Dropout(dropout)(input)
       end
     end

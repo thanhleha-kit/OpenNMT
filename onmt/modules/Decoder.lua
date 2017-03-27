@@ -191,6 +191,8 @@ function Decoder:_buildModel()
 	memoryMatrix = nn.Identity()()
 	table.insert(inputs, memoryMatrix)
 	self.args.inputIndex.memory = #inputs
+	-- maybe regularise the memory as well - since currently it is learning too fast
+	--~ memoryMatrix = nn.Dropout(self.rnn.dropout)(memoryMatrix)
   end
 
   -- Compute the input network.
@@ -227,9 +229,13 @@ function Decoder:_buildModel()
   attnLayer.name = 'decoderAttn'
   
   local finalHidden = outputs[#outputs]
-  
+  local memWeight
   if self.args.useMemory == true then
-	finalHidden = onmt.MemoryReader(self.args.rnnSize, self.args.memSize, self.args.nMemSlots)({finalHidden, memoryMatrix})
+	local readerOutput = onmt.MemoryReader(self.args.rnnSize, self.args.memSize, self.args.nMemSlots, self.rnn.dropout)({finalHidden, memoryMatrix})
+	--~ readerOutput = {readerOutput:split(2)}
+	finalHidden = readerOutput
+	--~ finalHidden = readerOutput[1]
+	--~ memWeight = readerOutput[2]
   end
   
   -- prepare input for the attention module
@@ -252,7 +258,7 @@ function Decoder:_buildModel()
   -- write new value to the memory tape
   local newMemory
   if self.args.useMemory == true then
-	newMemory = onmt.MemoryWriter(self.args.rnnSize, self.args.memSize, self.args.nMemSlots)({attnOutput, memoryMatrix})
+	newMemory = onmt.MemoryWriter(self.args.rnnSize, self.args.memSize, self.args.nMemSlots, self.rnn.dropout)({attnOutput, memoryMatrix, memWeight})
 	table.insert(outputs, newMemory)
 	self.args.outputIndex.memory = #outputs
   end
