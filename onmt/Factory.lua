@@ -147,7 +147,7 @@ function Factory.loadEncoder(pretrained, clone)
   end
 end
 
-function Factory.buildDecoder(opt, inputNetwork, generator, verbose)
+function Factory.buildDecoder(opt, inputNetwork, generator, verbose, nwords)
   local inputSize = inputNetwork.inputSize
 
   if opt.input_feed == 1 then
@@ -169,7 +169,8 @@ function Factory.buildDecoder(opt, inputNetwork, generator, verbose)
     end
   end
 
-  return onmt.Decoder.new(inputNetwork, rnn, generator, opt.attention, opt.input_feed == 1, opt.coverage)
+  --~ return onmt.Decoder.new(inputNetwork, rnn, generator, opt.attention, opt.input_feed == 1, opt.coverage)
+  return onmt.GANDecoder.new(inputNetwork, rnn, generator, opt.attention, opt.input_feed == 1, opt.coverage, nwords)
 end
 
 function Factory.buildWordDecoder(opt, dicts, verbose)
@@ -179,9 +180,39 @@ function Factory.buildWordDecoder(opt, dicts, verbose)
 
   local generator = Factory.buildGenerator(opt.rnn_size, dicts)
 
-  return Factory.buildDecoder(opt, inputNetwork, generator, verbose)
+  local nwords = dicts.words:size()
+  return Factory.buildDecoder(opt, inputNetwork, generator, verbose, nwords)
 end
+
+
+function Factory.buildGANNetwork(opt, dicts, verbose)
+	local inputNetwork = buildInputNetwork(opt, dicts,
+                                         opt.tgt_word_vec_size or opt.word_vec_size,
+                                         opt.pre_word_vecs_dec, opt.fix_word_vecs_dec)
+    
+    local generator = Factory.buildGenerator(opt.rnn_size, dicts)
+    
+    local nwords = dicts.words:size()
+	
+	
+	local decoder =  Factory.buildDecoder(opt, inputNetwork, generator, verbose, nwords)
+	
+	local inputNetClone = inputNetwork:clone('weight', 'bias', 'gradWeight', 'gradBias')              
+	
+	--~ local discriminator = Factory.buildDiscriminator(opt, inputNetClone, verbose) 
+
+	return decoder, discriminator
+end
+
 function Factory.loadDecoder(pretrained, clone)
+  if clone then
+    pretrained = onmt.utils.Tensor.deepClone(pretrained)
+  end
+
+  return onmt.GANDecoder.load(pretrained)
+end
+
+function Factory.loadGANNetwork(pretrained, clone)
   if clone then
     pretrained = onmt.utils.Tensor.deepClone(pretrained)
   end
@@ -197,4 +228,36 @@ function Factory.buildGenerator(rnnSize, dicts)
   end
 end
 
+
+--~ 
+function Factory.buildDiscriminator(opt, inputNetwork, verbose)
+  --~ 
+  local rnnSize = opt.rnn_size
+  
+  if opt.brnn_merge == 'concat' then
+    if opt.rnn_size % 2 ~= 0 then
+		error('in concat mode, rnn_size must be divisible by 2')
+	end
+	rnnSize = rnnSize / 2
+  elseif opt.brnn_merge == 'sum' then
+	rnnSize = rnnSize
+  else
+      error('invalid merge action ' .. opt.brnn_merge)
+  end
+
+  local rnn = onmt.LSTM.new(opt.layers, inputNetwork.inputSize, rnnSize, opt.dropout, opt.residual)
+
+  local model = onmt.Discriminator.new(inputNetwork, rnn, opt.brnn_merge)
+  
+  return model
+end
+
+
+function Factory.loadDiscriminator(pretrained, clone)
+  --~ 
+  return onmt.Discriminator.load(pretrained)
+end
+
 return Factory
+
+

@@ -40,6 +40,10 @@ function LSTM:__init(layers, inputSize, hiddenSize, dropout, residual, dropout_i
   self.numEffectiveLayers = 2 * layers
   self.outputSize = hiddenSize
   self.dropout_input = dropout_input
+  
+  if residual then
+	_G.logger:info(" * Using highway layer between LSTM stacks ")
+  end
 
   parent.__init(self, self:_buildModel(layers, inputSize, hiddenSize, dropout, residual, dropout_input))
 end
@@ -72,8 +76,11 @@ function LSTM:_buildModel(layers, inputSize, hiddenSize, dropout, residual, drop
     else
       inputDim = hiddenSize
       input = nextH
-      if residual and (L > 2 or inputSize == hiddenSize) then
-        input = nn.CAddTable()({input, prevInput})
+      --~ if residual and (L > 2 or inputSize == hiddenSize) then
+        --~ input = nn.CAddTable()({input, prevInput})
+      if residual and L >= 2 then
+		input = onmt.Highway(hiddenSize, nn.ReLU(), false)(nn.Dropout(dropout)(input))
+      
       end
       if dropout > 0 then
         input = nn.Dropout(dropout)(input)

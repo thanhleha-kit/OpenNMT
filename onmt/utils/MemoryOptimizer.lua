@@ -6,7 +6,8 @@ local MemoryOptimizer = torch.class('MemoryOptimizer')
 local protectOutput = {
   'nn.Sigmoid',
   'nn.SoftMax',
-  'nn.Tanh'
+  'nn.Tanh',
+  'onmt.GanSampler'
 }
 
 -- We cannot share the input of these modules as they use it in their backward pass.

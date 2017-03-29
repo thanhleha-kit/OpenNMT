@@ -57,13 +57,13 @@ function Decoder:__init(inputNetwork, rnn, generator, attention, inputFeed, cove
   
   -- Attention type
   self.args.attention = attention
-  self.generator = generator
+
   parent.__init(self, self:_buildModel())
 
   -- The generator use the output of the decoder sequencer to generate the
   -- likelihoods over the target vocabulary.
-  --~ self.generator = generator
-  --~ self:add(self.generator)
+  self.generator = generator
+  self:add(self.generator)
 
   self:resetPreallocation()
 end
@@ -215,26 +215,12 @@ function Decoder:_buildModel()
 	nextCoverage = attnOutput[2]
 	attnOutput = attnOutput[1]
 	table.insert(outputs, nextCoverage)
-	self.args.outputIndex.coverage = #outputs
   end
   
   if self.rnn.dropout > 0 then
     attnOutput = nn.Dropout(self.rnn.dropout)(attnOutput)
   end
   table.insert(outputs, attnOutput)
-  self.args.outputIndex.hidden = #outputs
-  
-  local distribution = self.generator(attnOutput)
-  local samples = onmt.GanSampler('multinomial')(distribution)
-  
-  table.insert(outputs, samples)
-  self.args.outputIndex.samples = #outputs
-  
-  table.insert(outputs, distribution)
-  self.args.outputIndex.distribution = #outputs
-  
-  
-  
   return nn.gModule(inputs, outputs)
 end
 
@@ -289,14 +275,8 @@ Returns:
  1. `out` - Top-layer hidden state.
  2. `states` - All states.
 --]]
---~ function Decoder:forwardOne(input, prevStates, context, prevOut, prevCoverage, t)
-function Decoder:forwardOne(input, prevStates, context, prevOuts, t)
+function Decoder:forwardOne(input, prevStates, context, prevOut, prevCoverage, t)
   local inputs = {}
-  
-  local prevOut = prevOuts.out
-  local prevCoverage = prevOuts.coverage
-  local prevDist = prevOuts.dist
-  local prevSamples = prevOuts.samples
 
   -- Create RNN input (see sequencer.lua `buildNetwork('dec')`).
   onmt.utils.Table.append(inputs, prevStates)
@@ -335,32 +315,21 @@ function Decoder:forwardOne(input, prevStates, context, prevOuts, t)
   -- Make sure decoder always returns table.
   if type(outputs) ~= "table" then outputs = { outputs } end
 
-  
+  local out = outputs[#outputs]
   local states = {}
   
-  local nOutputs = 3
+  local nOutputs = 1
   local nextCoverage = nil
   if self.args.coverageSize > 0 then
-	nOutputs = 4
-	nextCoverage = outputs[#outputs - nOutputs + 1] -- update the coverage vector
+	nOutputs = 2
+	nextCoverage = outputs[#outputs - 1] -- update the coverage vector
   end
   
   for i = 1, #outputs - nOutputs do
     table.insert(states, outputs[i])
   end
-  
-  local out = outputs[#outputs-2]
-  local samples = outputs[#outputs-1]
-  local dist = outputs[#outputs]
 
-  local nextOuts = {}
-  
-  nextOuts.dist = dist
-  nextOuts.out = out
-  nextOuts.coverage = nextCoverage
-  nextOuts.samples = samples
-  --~ return out, nextCoverage, states
-  return nextOuts, states
+  return out, nextCoverage, states
 end
 
 --[[Compute all forward steps.
@@ -384,11 +353,10 @@ function Decoder:forwardAndApply(batch, encoderStates, context, func)
 
   local states = onmt.utils.Tensor.copyTensorTable(self.statesProto, encoderStates)
 
-  --~ local prevOut, prevCoverage
-  local prevOut = {}
+  local prevOut, prevCoverage
 
   for t = 1, batch.targetLength do
-    prevOut, states = self:forwardOne(batch:getTargetInput(t), states, context, prevOut, t)
+    prevOut, prevCoverage, states = self:forwardOne(batch:getTargetInput(t), states, context, prevOut, prevCoverage, t)
     func(prevOut, t)
   end
 end
@@ -451,20 +419,13 @@ function Decoder:backward(batch, outputs, criterion)
   
   local gradHiddenProto = onmt.utils.Tensor.reuseTensor(self.gradHiddenProto, {batch.size, self.args.rnnSize})
   table.insert(gradStatesInput, gradHiddenProto)
-  
-  local gradSampleProto = onmt.utils.Tensor.reuseTensor(torch.Tensor(), {batch.size})
-  table.insert(gradStatesInput, gradSampleProto)
-  
-  local gradDistProto = { torch.Tensor() }
-  table.insert(gradStatesInput, gradDistProto)
 
   local loss = 0
 
   for t = batch.targetLength, 1, -1 do
     -- Compute decoder output gradients.
     -- Note: This would typically be in the forward pass.
-    --~ local pred = self.generator:forward(outputs[t])
-    local pred = outputs[t].dist
+    local pred = self.generator:forward(outputs[t])
     local output = batch:getTargetOutput(t)
 
     loss = loss + criterion:forward(pred, output)
@@ -476,28 +437,26 @@ function Decoder:backward(batch, outputs, criterion)
     end
 
     -- Compute the final layer gradient.
-    --~ local decGradOut = self.generator:backward(outputs[t], genGradOut)
-    --~ gradStatesInput[#gradStatesInput]:add(decGradOut)
-    
-    gradStatesInput[self.args.outputIndex.distribution] = genGradOut
+    local decGradOut = self.generator:backward(outputs[t], genGradOut)
+    gradStatesInput[#gradStatesInput]:add(decGradOut)
 
     -- Compute the standard backward.
     local gradInput = self:net(t):backward(self.inputs[t], gradStatesInput)
 
     -- Accumulate encoder output gradients.
     gradContextInput:add(gradInput[self.args.inputIndex.context])
-    --~ gradStatesInput[#gradStatesInput]:zero()
+    gradStatesInput[#gradStatesInput]:zero()
 
     -- Accumulate previous output gradients with input feeding gradients.
     if self.args.inputFeed and t > 1 then
-      gradStatesInput[self.args.outputIndex.hidden] = gradInput[self.args.inputIndex.inputFeed]
+      gradStatesInput[#gradStatesInput]:add(gradInput[self.args.inputIndex.inputFeed])
     end
     
     -- Accumulate previous coverage gradients
     if self.args.coverageSize > 0  then
 	  --~ gradStatesInput[#gradStatesInput-1]:zero()
 	  --~ gradStatesInput[#gradStatesInput-1]:add(gradInput[self.args.inputIndex.coverage])
-	  gradStatesInput[self.args.outputIndex.coverage] = gradInput[self.args.inputIndex.coverage]
+	  gradStatesInput[#gradStatesInput-1] = gradInput[self.args.inputIndex.coverage]
     end
 
     -- Prepare next decoder output gradients.
@@ -505,15 +464,8 @@ function Decoder:backward(batch, outputs, criterion)
       gradStatesInput[i]:copy(gradInput[i])
     end
   end
-  
-  local gradStates = {}
-  
-  for k = 1, #self.statesProto do
-	table.insert(gradStates, gradStatesInput[k])
-  end
 
-  --~ return gradStatesInput, gradContextInput, loss
-  return gradStates, gradContextInput, loss
+  return gradStatesInput, gradContextInput, loss
 end
 
 --[[ Compute the loss on a batch.
@@ -534,8 +486,7 @@ function Decoder:computeLoss(batch, encoderStates, context, criterion)
 
   local loss = 0
   self:forwardAndApply(batch, encoderStates, context, function (out, t)
-    --~ local pred = self.generator:forward(out)
-    local pred = out.dist
+    local pred = self.generator:forward(out)
     local output = batch:getTargetOutput(t)
     loss = loss + criterion:forward(pred, output)
   end)
@@ -562,8 +513,7 @@ function Decoder:computeScore(batch, encoderStates, context)
   local score = {}
 
   self:forwardAndApply(batch, encoderStates, context, function (out, t)
-    --~ local pred = self.generator:forward(out)
-    local pred = out.dist
+    local pred = self.generator:forward(out)
     for b = 1, batch.size do
       if t <= batch.targetSize[b] then
         score[b] = (score[b] or 0) + pred[1][b][batch.targetOutput[t][b]]

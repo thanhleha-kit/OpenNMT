@@ -49,7 +49,7 @@ function Seq2Seq:__init(args, dicts, verbose)
   onmt.utils.Table.merge(self.args, onmt.utils.ExtendedCmdLine.getModuleOpts(args, options))
 
   self.models.encoder = onmt.Factory.buildWordEncoder(args, dicts.src, verbose)
-  self.models.decoder, self.models.discriminator = onmt.Factory.buildGANNetwork(args, dicts.tgt, verbose)
+  self.models.decoder = onmt.Factory.buildWordDecoder(args, dicts.tgt, verbose)
   self.criterion = onmt.ParallelClassNLLCriterion(onmt.Factory.getOutputSizes(dicts.tgt))
 end
 
@@ -61,7 +61,6 @@ function Seq2Seq.load(args, models, dicts, isReplica)
 
   self.models.encoder = onmt.Factory.loadEncoder(models.encoder, isReplica)
   self.models.decoder = onmt.Factory.loadDecoder(models.decoder, isReplica)
-  self.models.discriminator = onmt.Factory.loadDiscriminator(models.discriminator)
   self.criterion = onmt.ParallelClassNLLCriterion(onmt.Factory.getOutputSizes(dicts.tgt))
 
   return self
@@ -69,7 +68,7 @@ end
 
 -- Returns model name.
 function Seq2Seq.modelName()
-  return 'Sequence to Sequence with Attention - preparing for Generative Adversarial Network'
+  return 'Sequence to Sequence with Attention'
 end
 
 -- Returns expected dataMode.

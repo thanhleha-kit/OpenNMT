@@ -1,4 +1,4 @@
-print(" * Modified decoder for coverage and context gate attention - 23/3/2017")
+print(" * Modified decoder for GAN - 27/3/2017")
 
 --[[ Unit to decode a sequence of output tokens.
 
@@ -16,7 +16,7 @@ print(" * Modified decoder for coverage and context gate attention - 23/3/2017")
 Inherits from [onmt.Sequencer](onmt+modules+Sequencer).
 
 --]]
-local Decoder, parent = torch.class('onmt.Decoder', 'onmt.Sequencer')
+local Decoder, parent = torch.class('onmt.GANDecoder', 'onmt.Sequencer')
 
 
 --[[ Construct a decoder layer.
@@ -28,13 +28,14 @@ Parameters:
   * `generator` - optional, an output [onmt.Generator](onmt+modules+Generator).
   * `inputFeed` - bool, enable input feeding.
 --]]
-function Decoder:__init(inputNetwork, rnn, generator, attention, inputFeed, coverage)
+function Decoder:__init(inputNetwork, rnn, generator, attention, inputFeed, coverage, nwords)
   self.rnn = rnn
   self.inputNet = inputNetwork
 
   self.args = {}
   self.args.rnnSize = self.rnn.outputSize
   self.args.numEffectiveLayers = self.rnn.numEffectiveLayers
+  self.args.nwords = nwords
 
   self.args.inputIndex = {}
   self.args.outputIndex = {}
@@ -57,26 +58,32 @@ function Decoder:__init(inputNetwork, rnn, generator, attention, inputFeed, cove
   
   -- Attention type
   self.args.attention = attention
-  self.generator = generator
-  parent.__init(self, self:_buildModel())
+
+  
 
   -- The generator use the output of the decoder sequencer to generate the
   -- likelihoods over the target vocabulary.
-  --~ self.generator = generator
-  --~ self:add(self.generator)
+  self.generator = generator
+  
+  parent.__init(self, self:_buildModel())
 
   self:resetPreallocation()
 end
+
+function Decoder.initializeFromDecoder(pretrained)
+  
+  
+end
+
 
 --[[ Return a new Decoder using the serialized data `pretrained`. ]]
 function Decoder.load(pretrained)
   local self = torch.factory('onmt.Decoder')()
 
   self.args = pretrained.args
-
+  
+  -- we have only one network to load 
   parent.__init(self, pretrained.modules[1])
-  self.generator = pretrained.modules[2]
-  self:add(self.generator)
 
   self:resetPreallocation()
 
@@ -86,6 +93,7 @@ end
 --[[ Return data to serialize. ]]
 function Decoder:serialize()
   return {
+	name = 'GANDecoder',
     modules = self.modules,
     args = self.args
   }
@@ -118,6 +126,9 @@ function Decoder:resetPreallocation()
   self.gradHiddenProto = torch.Tensor()
   
   self.samplingProto = torch.Tensor()
+  
+  self:stopSampling()
+ 
 end
 
 --[[ Build a default one time-step of the decoder
@@ -133,6 +144,14 @@ Returns: An nn-graph mapping
   ${if}$ is the input feeding, and
   ${a}$ is the context vector computed at this timestep.
 --]]
+
+
+function Decoder:_buildModelFromPretrained()
+
+end
+
+
+
 function Decoder:_buildModel()
   local inputs = {}
   local states = {}
@@ -223,9 +242,14 @@ function Decoder:_buildModel()
   end
   table.insert(outputs, attnOutput)
   self.args.outputIndex.hidden = #outputs
+    
+  local generator = self.generator
+  generator.name = 'Generator'
+  local distribution = generator(attnOutput)
   
-  local distribution = self.generator(attnOutput)
-  local samples = onmt.GanSampler('multinomial')(distribution)
+  local sampler = onmt.GanSampler('multinomial')
+  sampler.name = 'Sampler'
+  local samples = sampler(distribution)
   
   table.insert(outputs, samples)
   self.args.outputIndex.samples = #outputs
@@ -233,9 +257,9 @@ function Decoder:_buildModel()
   table.insert(outputs, distribution)
   self.args.outputIndex.distribution = #outputs
   
-  
-  
-  return nn.gModule(inputs, outputs)
+  local network = nn.gModule(inputs, outputs)
+ 
+  return network
 end
 
 --[[ Mask padding means that the attention-layer is constrained to
@@ -516,6 +540,91 @@ function Decoder:backward(batch, outputs, criterion)
   return gradStates, gradContextInput, loss
 end
 
+-- for GAN training:
+-- sampling from the decoder 
+-- our desired output here is a batched sample [size x length]
+function Decoder:forwardSampling(batch, encoderStates, context)
+
+	local samples = torch.Tensor(batch.size, onmt.Constants.MAX_TARGET_LENGTH):fill(onmt.CONSTANTS.PAD)
+	
+	if self.statesProto == nil then
+		self.statesProto = onmt.utils.Tensor.initTensorTable(#encoderStates,
+														 self.stateProto,
+														 { batch.size, self.args.rnnSize })
+	end
+
+	local states = onmt.utils.Tensor.copyTensorTable(self.statesProto, encoderStates)
+	local prevOut = {}
+	
+	samples[ {{}, 1} ]:fill(onmt.Constants.BOS) -- first sample is BOS
+	
+	local completed = torch.Tensor()
+	completed:resize(batch.size):zero()
+	
+	local realLength = onmt.Constants.MAX_TARGET_LENGTH
+	
+	local outputs 
+	
+	-- we sample until reaching the max target length
+	for t = 1, onmt.Constants.MAX_TARGET_LENGTH do
+		
+		local input
+		if t > 1 then
+			input = samples:index(2, t - 1) 
+		elseif t == 1 then
+			input = samples:index(2, t)
+		end
+		prevOut, states = self:forwardOne(input, states, context, prevOut, t)
+		
+		local sampled = prevOut.samples
+		samples[ {{}, t} ]:copy(sampled)
+		
+		-- store this, could be useful when doing backward
+		table.insert(putputs, prevOut)
+		
+		-- next, we have to see if the sampling process is completed
+		-- have to start from t > 1 because with t = 1, there's no history to carry over
+		
+		local continue = false
+		if t > 1 then
+			for b = 1, batch.size do
+				
+				if completed[b] == 1 then
+					samples[ {{}, t} ] = onmt.Constants.PAD
+				end
+			
+				if sampled[b] == onmt.Constants.EOS then
+					completed[b] = 1
+				end
+				-- continue if there is any sentence incompleted
+				if completed[b] < 1 then
+					continue = true
+				end
+			end
+		end
+		
+		if continue == false then 
+			realLength = t
+			break
+		end
+		
+	end
+	
+	-- resize the samples
+	samples:resize(batch.size, realLength)
+	
+	return samples, outputs
+end
+
+-- for GAN training
+-- we have the gradients of the loss (at the discriminator) w.r.t the samples
+-- backward to the network (here the generator output will be zero)
+function Decoder:backwardSampling(batch, sampleLoss)
+	
+end
+
+
+
 --[[ Compute the loss on a batch.
 
 Parameters:
@@ -635,4 +744,38 @@ function Decoder:sampleBatch(batch, encoderStates, context, maxLength, argmax)
 	
 	sampledSeq = sampledSeq:narrow(1, 1, realMaxLength)  
 	return sampledSeq
+end
+
+
+function Decoder:startSampling()
+	
+	self.network:apply( function (layer)
+		if layer.name == 'Sampler' then
+			layer:Enable()
+		end
+	end)
+	
+	for i = 1, #self.networkClones do
+		self.networkClones[i]:apply( function (layer)
+			if layer.name == 'Sampler' then
+				layer:Enable()
+			end
+		end)
+	end
+end
+function Decoder:stopSampling()
+	
+	self.network:apply( function (layer)
+		if layer.name == 'Sampler' then
+			layer:Disable()
+		end
+	end)
+	
+	for i = 1, #self.networkClones do
+		self.networkClones[i]:apply( function (layer)
+			if layer.name == 'Sampler' then
+				layer:Disable()
+			end
+		end)
+	end
 end

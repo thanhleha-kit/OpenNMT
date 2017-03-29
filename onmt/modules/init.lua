@@ -32,5 +32,16 @@ require('onmt.modules.Coverage.CoverageAttention')
 require('onmt.modules.Utils.SequenceLinear')
 require('onmt.modules.Utils.Replicator')
 require('onmt.modules.Utils.Energy')
+require('onmt.modules.Utils.JoinLinear')
+require('onmt.modules.Utils.Highway')
+
+
+
+-- GAN modules
+require('onmt.modules.GAN.EncoderNoContext')
+require('onmt.modules.GAN.GANDecoder')
+require('onmt.modules.GAN.GanSampler')
+require('onmt.modules.GAN.Discriminator')
+
 
 return onmt
