@@ -28,11 +28,11 @@ local GlobalAttention, parent = torch.class('onmt.GlobalAttention', 'onmt.Networ
 
   * `dim` - dimension of the context vectors.
 --]]
-function GlobalAttention:__init(dim)
-  parent.__init(self, self:_buildModel(dim))
+function GlobalAttention:__init(dim, contextGate)
+  parent.__init(self, self:_buildModel(dim, contextGate))
 end
 
-function GlobalAttention:_buildModel(dim)
+function GlobalAttention:_buildModel(dim, contextGate)
   local inputs = {}
   table.insert(inputs, nn.Identity()())
   table.insert(inputs, nn.Identity()())
@@ -50,9 +50,23 @@ function GlobalAttention:_buildModel(dim)
 
   -- Apply attention to context.
   local contextCombined = nn.MM()({attn, context}) -- batchL x 1 x dim
-  contextCombined = nn.Sum(2)(contextCombined) -- batchL x dim
-  contextCombined = nn.JoinTable(2)({contextCombined, inputs[1]}) -- batchL x dim*2
-  local contextOutput = nn.Tanh()(nn.Linear(dim*2, dim, false)(contextCombined))
+  local contextVector = nn.Sum(2)(contextCombined) -- batchL x dim
+  contextCombined = nn.JoinTable(2)({contextVector, inputs[1]}) -- batchL x dim*2
+  --~ local contextOutput = nn.Tanh()(nn.Linear(dim*2, dim, false)(contextCombined))
+  local contextOutput
+  
+  if contextGate == true then
+	local contextGate = nn.Sigmoid()(nn.Linear(dim*2, dim, true)(contextCombined))
+	local inputGate = nn.AddConstant(1,false)(nn.MulConstant(-1,false)(contextGate))
+
+	local gatedContext = nn.CMulTable()({contextGate, contextVector})
+	local gatedInput   = nn.CMulTable()({inputGate, inputs[1]})
+
+	local gatedContextCombined = nn.JoinTable(2)({gatedContext, gatedInput})
+	contextOutput = nn.Tanh()(nn.Linear(dim*2, dim, false)(gatedContextCombined))
+  else
+	contextOutput = nn.Tanh()(nn.Linear(dim*2, dim, false)(contextCombined))
+  end
 
   return nn.gModule(inputs, {contextOutput})
 end

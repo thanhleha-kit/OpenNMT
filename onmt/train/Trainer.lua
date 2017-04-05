@@ -53,7 +53,7 @@ local options = {
                                       {valid=onmt.utils.ExtendedCmdLine.isUInt()}},
   {'-report_every',            100,    [[Print stats every this many iterations within an epoch.]],
                                       {valid=onmt.utils.ExtendedCmdLine.isUInt()}},
-  {'-report_bleu',          false, [[Report BLEU Score for validation data.]]},
+  {'-report_bleu',          true, [[Report BLEU Score for validation data.]]},
   {'-async_parallel_minbatch', 1000,  [[For async parallel computing, minimal number of batches before being parallel.]],
                                       {valid=onmt.utils.ExtendedCmdLine.isUInt()}},
   {'-start_iteration',         1,     [[If loading from a checkpoint, the iteration from which to start]],
@@ -181,12 +181,7 @@ function Trainer:train(model, optim, trainData, validData, dataset, info)
     return epochState, epochProfiler:dump()
   end
   
-  if self.args.report_bleu == true then
-	
-	local bleuScore = evalBLEU(model, validData)
-	_G.logger:info('Validation BLEU score: %.2f', bleuScore)
-	
-  end
+  
 
   _G.logger:info('Start training...')
 
@@ -202,6 +197,11 @@ function Trainer:train(model, optim, trainData, validData, dataset, info)
 
     globalProfiler:start('valid')
     local validPpl = eval(model, validData)
+    
+    if self.args.report_bleu == true then
+		local bleuScore = evalBLEU(model, validData)
+		_G.logger:info('Validation BLEU score: %.2f', bleuScore)
+	end
     globalProfiler:stop('valid')
 
     if self.args.profiler then _G.logger:info('profile: %s', globalProfiler:log()) end
