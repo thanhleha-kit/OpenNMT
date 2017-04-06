@@ -49,8 +49,8 @@ end
 function DecoderAdvancer:ensembleScore(scores)
 	
 	
-	local score = scores[1]	
-	local nOutputs = #score
+	local score = scores[1]	-- the first in the list
+	local nOutputs = #score -- word and features. 1 if word only
 	
 	
 	
@@ -96,7 +96,8 @@ function DecoderAdvancer:initBeam()
 
   -- Define state to be { {decoder states}, {decoder output}, {decoder coverage}, {context},
   -- {attentions}, features, sourceSizes, step }.
-  local state = { self.decStates, nil, nil, self.contexts, nil, features, sourceSizes, 1 }
+  local decOutputs = nil
+  local state = { self.decStates, nil, self.contexts, nil, features, sourceSizes, 1 }
   return onmt.translate.Beam.new(tokens, state)
 end
 
@@ -109,8 +110,8 @@ Parameters:
 ]]
 function DecoderAdvancer:update(beam)
   local state = beam:getState()
-  local decStates, decOuts, decCovs, contexts, _, features, sourceSizes, t
-    = table.unpack(state, 1, 8)
+  local decStates, decOutputs, contexts, _, features, sourceSizes, t
+    = table.unpack(state, 1, 7)
   --~ print(features)
   local tokens = beam:getTokens()
   local token = tokens[#tokens]
@@ -125,22 +126,19 @@ function DecoderAdvancer:update(beam)
   end
   
   local newOuts = {}
-  local newCovs = {}
   local newStates = {}
   local attnOuts = {}
   for i = 1, self.nModels do
 	self.decoders[i]:maskPadding(sourceSizes, self.batch.sourceLength)
 	
-	local decOut = decOuts and decOuts[i] or nil
-	local decCov = decCovs and decCovs[i] or nil
+	local decOutput = decOutputs and decOutputs[i] or {}
 	local context = contexts[i]
 	local decState = decStates and decStates[i] or nil
 	
 	-- input is always the same for the decoders
-	decOut, decCov, decState = self.decoders[i]:forwardOne(inputs, decState, context, decOut, decCov)
+	decOutput, decState = self.decoders[i]:forwardOne(inputs, decState, context, decOutput)
 	
-	newOuts[i] = decOut
-	newCovs[i] = decCov -- could be nil
+	newOuts[i] = decOutput
 	newStates[i] = decState
 	
 	local softmaxOut = self.decoders[i].softmaxAttn.output
@@ -149,7 +147,7 @@ function DecoderAdvancer:update(beam)
  
   
   t = t + 1
-  local nextState = {newStates, newOuts, newCovs, contexts, attnOuts, nil, sourceSizes, t}
+  local nextState = {newStates, newOuts, contexts, attnOuts, nil, sourceSizes, t}
   beam:setState(nextState)
 end
 
@@ -173,7 +171,8 @@ function DecoderAdvancer:expand(beam)
   --~ local out = self.decoder.generator:forward(decOut)
   local logSoftMaxes = {}
   for i = 1, self.nModels do
-	logSoftMaxes[i] = self.decoders[i].generator:forward(decOuts[i])
+	--~ logSoftMaxes[i] = self.decoders[i].generator:forward(decOuts[i])
+	logSoftMaxes[i] = decOuts[i][3]
   end
   local out = self:ensembleScore(logSoftMaxes) -- average the score 
   
@@ -187,8 +186,14 @@ function DecoderAdvancer:expand(beam)
 	local _, best = out[j]:max(2)
     features[j - 1] = best:view(-1)
   end
-  state[6] = features
+  state[5] = features
   local scores = out[1]
+  
+  for i = 1, self.nModels do
+	decOuts[i][3] = nil
+  end
+  
+  collectgarbage()
   return scores
 end
 
