@@ -38,10 +38,12 @@ function Translator:__init(args)
   self.models = {}
   self.models.encoder = onmt.Factory.loadEncoder(self.checkpoint.models.encoder)
   self.models.decoder = onmt.Factory.loadDecoder(self.checkpoint.models.decoder)
-
+	
+  self.models.encoder:clearState()
+  self.models.decoder:clearState()
   self.models.encoder:evaluate()
   self.models.decoder:evaluate()
-
+  
   onmt.utils.Cuda.convert(self.models.encoder)
   onmt.utils.Cuda.convert(self.models.decoder)
 
@@ -50,6 +52,9 @@ function Translator:__init(args)
   if self.opt.phrase_table:len() > 0 then
     self.phraseTable = onmt.translate.PhraseTable.new(self.opt.phrase_table)
   end
+  
+  self.checkpoint = nil
+  collectgarbage()
 end
 
 function Translator:buildInput(tokens)
@@ -186,11 +191,11 @@ function Translator:translateBatch(batch)
                                                       self.dicts, self.opt.word_pen)
 
   -- Save memory by only keeping track of necessary elements in the states.
-  -- Attentions are at index 4 in the states defined in onmt.translate.DecoderAdvancer.
-  local attnIndex = 4
+  -- Attentions are at index 3 in the states defined in onmt.translate.DecoderAdvancer.
+  local attnIndex = 3
 
-  -- Features are at index 6 in the states defined in onmt.translate.DecoderAdvancer.
-  local featsIndex = 6
+  -- Features are at index 5 in the states defined in onmt.translate.DecoderAdvancer.
+  local featsIndex = 5
 
   advancer:setKeptStateIndexes({attnIndex, featsIndex})
 
