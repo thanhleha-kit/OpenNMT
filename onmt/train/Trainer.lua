@@ -89,6 +89,7 @@ function Trainer:train(model, optim, trainData, validData, dataset, info)
   
   _G.params, _G.gradParams = _G.model:initParams(verbose)
   
+  
   if self.args.profiler then
     _G.model:enableProfiling()
   end
@@ -99,6 +100,8 @@ function Trainer:train(model, optim, trainData, validData, dataset, info)
 	batch.totalSize = batch.size
 	onmt.utils.Memory.optimize(_G.model, batch, verbose)
   end
+  
+  
   
   
 
@@ -112,10 +115,6 @@ function Trainer:train(model, optim, trainData, validData, dataset, info)
     local startI = self.args.start_iteration
 
     local numIterations = trainData:batchCount()
-    -- In parallel mode, number of iterations is reduced to reflect larger batch size.
-    if onmt.utils.Parallel.count > 1 and not self.args.async_parallel then
-      numIterations = math.ceil(numIterations / onmt.utils.Parallel.count)
-    end
 
     local epochState = onmt.train.EpochState.new(epoch, startI, numIterations, optim:getLearningRate())
     local batchOrder
@@ -124,6 +123,7 @@ function Trainer:train(model, optim, trainData, validData, dataset, info)
       batchOrder = info.batchOrder
     else
       -- Shuffle mini batch order.
+      _G.logger:info(" * Shuffling the mini-batch order")
       batchOrder = torch.randperm(trainData:batchCount())
     end
 
@@ -163,7 +163,7 @@ function Trainer:train(model, optim, trainData, validData, dataset, info)
 		
 		epochState:update(model, batch, loss)
 		
-		if iter % self.args.report_every == 0 then
+		if iter % self.args.report_every == 0 or ( iter == 1 and epoch == self.args.start_epoch ) then
           epochState:log(iter)
         end
         
@@ -184,6 +184,7 @@ function Trainer:train(model, optim, trainData, validData, dataset, info)
   
 
   _G.logger:info('Start training...')
+  
 
   for epoch = self.args.start_epoch, self.args.end_epoch do
     _G.logger:info('')

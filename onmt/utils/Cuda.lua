@@ -16,6 +16,13 @@ function Cuda.declareOpts(cmd)
   cmd:setCmdLineOptions(options)
 end
 
+function Cuda.setSeed(seed)
+	if Cuda.activated then
+		cutorch.manualSeed(seed)
+	end
+	torch.manualSeed(seed)
+end
+
 function Cuda.init(opt, masterGPU)
   for _, val in ipairs(onmt.utils.String.split(opt.gpuid, ',')) do
     local id = tonumber(val)

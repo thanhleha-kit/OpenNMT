@@ -34,4 +34,9 @@ require('onmt.modules.Utils.Replicator')
 require('onmt.modules.Utils.Energy')
 require('onmt.modules.Utils.LayerNormalization')
 
+-- Reinforce modules
+require('onmt.modules.Reinforce.MultinomialSample')
+require('onmt.modules.Reinforce.LinearNoBackpropInput')
+require('onmt.modules.Reinforce.BaselineRewarder')
+
 return onmt

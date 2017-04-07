@@ -63,12 +63,10 @@ function Decoder:__init(inputNetwork, rnn, generator, attention, inputFeed, cove
   self.generator = generator
 
   parent.__init(self, self:_buildModel())
-
-
   
-  --~ self:add(self.generator)
-
   self:resetPreallocation()
+  
+  self:disableSampling()
 end
 
 --[[ Return a new Decoder using the serialized data `pretrained`. ]]
@@ -121,6 +119,8 @@ function Decoder:resetPreallocation()
   self.gradHiddenProto = torch.Tensor()
   
   self.samplingProto = torch.Tensor()
+  
+  self.gradSamplingProto = torch.Tensor()
 end
 
 --[[ Build a default one time-step of the decoder
@@ -227,11 +227,23 @@ function Decoder:_buildModel()
   table.insert(outputs, prediction)
   self.args.outputIndex.prediction = #outputs
   
+  -- Sampling from softmax
+  local sampler = nn.MultinomialSample()
+  local sample = sampler(prediction)
+  table.insert(outputs, sample)
+  self.args.outputIndex.sample = #outputs 
+  
+  local baselineRewarder = onmt.BaselineRewarder(self.args.rnnSize)
+  local predReward = baselineRewarder(attnOutput)
+  table.insert(outputs, predReward)
+  self.args.outputIndex.reward = #outputs
   
   local network = nn.gModule(inputs, outputs)
-  
+  -- Pointers to the layers 
   network.generator = self.generator
   network.decoderAttn = attnLayer
+  network.decoderSampler = sampler
+  
   
   return network
 end
@@ -332,9 +344,11 @@ function Decoder:forwardOne(input, prevStates, context, prevOutputs, t)
 
   -- Make sure decoder always returns table.
   if type(outputs) ~= "table" then outputs = { outputs } end
-
+--~ 
   local finalHidden = outputs[self.args.outputIndex.hidden]
   local prediction = outputs[self.args.outputIndex.prediction]
+  local sample = outputs[self.args.outputIndex.sample]
+  local reward = outputs[self.args.outputIndex.reward]
   local states = {}
   
   local nextCoverage = nil
@@ -351,6 +365,8 @@ function Decoder:forwardOne(input, prevStates, context, prevOutputs, t)
   nextOutputs[1] = finalHidden
   nextOutputs[2] = nextCoverage
   nextOutputs[3] = prediction
+  nextOutputs[4] = sample
+  nextOutputs[5] = predReward
 
   --~ return out, nextCoverage, states
   return nextOutputs, states
@@ -445,6 +461,13 @@ function Decoder:initGradOutput(batch)
 	local gradHiddenProto = onmt.utils.Tensor.reuseTensor(self.gradHiddenProto, {batch.size, self.args.rnnSize})
 	table.insert(gradStatesInput, gradHiddenProto)
 	
+	gradStatesInput[self.args.outputIndex.prediction] = {}
+	
+	-- gradients w.r.t samples
+	gradStatesInput[self.args.outputIndex.sample] = onmt.utils.Tensor.reuseTensor(self.gradSamplingProto, {batch.size})
+	
+	
+	
 	--~ local nFeature = #batch.targetOutputFeatures
   --~ local gradPredProto = {}
   --~ for i = 1, nFeature+1 do
@@ -477,9 +500,11 @@ function Decoder:backward(batch, outputs, criterion)
     -- Compute decoder output gradients.
     -- Note: This would typically be in the forward pass.
     --~ local pred = self.generator:forward(outputs[t])
+    
     local pred = outputs[t][3]
     local output = batch:getTargetOutput(t)
-
+	
+	--~ print(pred)
     loss = loss + criterion:forward(pred, output)
 
     -- Compute the criterion gradient.
@@ -499,6 +524,8 @@ function Decoder:backward(batch, outputs, criterion)
     
     -- Reset the gradients for these guys
     gradStatesInput[self.args.outputIndex.hidden]:zero()
+    gradStatesInput[self.args.outputIndex.sample]:zero()
+    
     if self.args.coverageSize > 0 then
 		gradStatesInput[self.args.outputIndex.coverage]:zero()
 	end
@@ -587,6 +614,10 @@ function Decoder:computeScore(batch, encoderStates, context)
   return score
 end
 
+
+-- Sampling function
+-- Input: batch, outputs from encoder (encoderStates, context) and max sample length
+-- Note that here we don't use the sampling output, but to take argmax of the softmax
 function Decoder:sampleBatch(batch, encoderStates, context, maxLength)
 	
 	maxLength = maxLength or onmt.Constants.MAX_TARGET_LENGTH
@@ -608,7 +639,7 @@ function Decoder:sampleBatch(batch, encoderStates, context, maxLength)
 	
 	local prevOutputs = {}
 	
-	local realMaxLength = maxLength-- Avoid wasting time in sampling too many PAD
+	local realMaxLength = maxLength
 	
 	-- Start sampling
 	for t = 1, maxLength do
@@ -642,11 +673,29 @@ function Decoder:sampleBatch(batch, encoderStates, context, maxLength)
 		end
 	
 		if continueFlag == false then
-			realMaxLength = t
+			realMaxLength = t -- Avoid wasting time in sampling too many PAD
 			break
 		end
 	end
 	
 	sampledSeq = sampledSeq:narrow(1, 1, realMaxLength)  
 	return sampledSeq
+end
+
+
+-- Two functions to control sampling (to make training faster when sampling is not necessary)
+function Decoder:enableSampling()
+	self.network.decoderSampler:enable()
+	
+	for i = 1, #self.networkClones do
+		self.networkClones[i].decoderSampler:enable()
+	end
+end
+
+function Decoder:disableSampling()
+	self.network.decoderSampler:disable()
+	
+	for i = 1, #self.networkClones do
+		self.networkClones[i].decoderSampler:disable()
+	end
 end
