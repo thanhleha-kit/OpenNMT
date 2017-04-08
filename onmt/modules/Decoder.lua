@@ -488,7 +488,7 @@ function Decoder:forward(batch, encoderStates, context)
 	-- accumulate reinforcement samples and rewards from nstepsinit + 1
 	if t >= self.nstepsinit then
 		self.sampledSequence[t]:copy(prevOutputs[4]) 
-		if t > self.nstepsinit the
+		if t > self.nstepsinit then
 			self.predRewards[t]:copy(prevOutputs[5][{{}, 1}])
 		end
 	else
