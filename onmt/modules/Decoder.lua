@@ -44,6 +44,7 @@ function Decoder:__init(inputNetwork, rnn, generator, attention, inputFeed, cove
   -- previous step.
   self.args.inputFeed = inputFeed
   self.args.coverageSize = coverage
+  self.args.softmaxSize = generator.outputSize
   
   -- backward compatibility with older models
   if self.args.coverageSize == nil then 
@@ -67,6 +68,9 @@ function Decoder:__init(inputNetwork, rnn, generator, attention, inputFeed, cove
   self:resetPreallocation()
   
   self:disableSampling()
+  
+  self.args.nSamplingSteps = 0 -- default: don't sample anything
+  self.args.maxLength = onmt.Constants.MAX_TARGET_LENGTH 
 end
 
 --[[ Return a new Decoder using the serialized data `pretrained`. ]]
@@ -121,6 +125,14 @@ function Decoder:resetPreallocation()
   self.samplingProto = torch.Tensor()
   
   self.gradSamplingProto = torch.Tensor()
+  
+  self.gradRewardProto = torch.Tensor()
+  
+  self.sampledSequence = torch.Tensor()
+  
+  self.gradSoftMaxProto = torch.Tensor()
+  
+  self.continue = torch.Tensor()
 end
 
 --[[ Build a default one time-step of the decoder
@@ -337,9 +349,7 @@ function Decoder:forwardOne(input, prevStates, context, prevOutputs, t)
   if self.train then
     self.inputs[t] = inputs
   end
-  
-  --~ print(self.inputs[t])
-  
+    
   local outputs = self:net(t):forward(inputs)
 
   -- Make sure decoder always returns table.
@@ -366,7 +376,7 @@ function Decoder:forwardOne(input, prevStates, context, prevOutputs, t)
   nextOutputs[2] = nextCoverage
   nextOutputs[3] = prediction
   nextOutputs[4] = sample
-  nextOutputs[5] = predReward
+  nextOutputs[5] = reward
 
   --~ return out, nextCoverage, states
   return nextOutputs, states
@@ -418,13 +428,144 @@ function Decoder:forward(batch, encoderStates, context)
                                          { batch.size, self.args.rnnSize })
   if self.train then
     self.inputs = {}
+    self.sampledSequence:resize(self.args.maxLength, batch.size):zero()
+    self.predRewards = self.sampledSequence:clone()
   end
 
   local outputs = {}
+  
+  if self.statesProto == nil then
+    self.statesProto = onmt.utils.Tensor.initTensorTable(#encoderStates,
+                                                         self.stateProto,
+                                                         { batch.size, self.args.rnnSize })
+  end
 
-  self:forwardAndApply(batch, encoderStates, context, function (out)
-    table.insert(outputs, out)
-  end)
+  local states = onmt.utils.Tensor.copyTensorTable(self.statesProto, encoderStates)
+
+  local prevOutputs = {}
+  
+  --~ self.nstepsinit = math.max(batch.targetLength - self.args.nSamplingSteps, 1)
+  
+  -- It is unfortunate that we are dealing with variable size sequences
+  -- 
+  local skips = batch.targetSize:clone() - self.args.nSamplingSteps
+  
+  -- minimum nsteps: 1
+  skips[torch.lt(skips, 1)] = 1
+  
+  
+  self.nstepsinit = torch.min(skips)
+  
+  local maxSkip = torch.max(skips)
+  
+  if maxSkip >= batch.targetLength then
+	self.nstepsinit = maxSkip + 1
+  end
+  
+  
+  self:disableSampling()
+  --~ self:enableSampling()
+  local realLength = self.args.maxLength
+  -- we have to loop until the maximum length of sampling
+  for t = 1, self.args.maxLength do
+	local inputT 
+	
+	if t > 1 then
+		inputT = self.sampledSequence[t-1]
+	else
+		inputT = batch:getTargetInput(1)
+	end
+	
+	-- start sampling from the step of stepsinit 
+	if t >= self.nstepsinit then
+		self:enableSampling(t)
+	end
+	
+	 
+	-- do a forward pass over the model
+	prevOutputs, states = self:forwardOne(inputT, states, context, prevOutputs, t)
+	
+	-- accumulate reinforcement samples and rewards from nstepsinit + 1
+	if t >= self.nstepsinit then
+		self.sampledSequence[t]:copy(prevOutputs[4]) 
+		if t > self.nstepsinit the
+			self.predRewards[t]:copy(prevOutputs[5][{{}, 1}])
+		end
+	else
+		self.sampledSequence[t]:copy(batch:getTargetOutput(t)[1]) -- using ground truth as samples
+	end
+	
+	table.insert(outputs, prevOutputs)
+	
+	if t > 1 then
+		--~ if t >= batch.targetLength then
+			--~ realLength = t
+			--~ break
+		--~ end
+		
+		-- first, we find the positions in the input that has EOS and PAD
+		local compare = torch.eq(inputT, onmt.Constants.EOS)
+		compare:add(torch.eq(inputT, onmt.Constants.PAD))
+		-- and force the sampled positions to be PAD
+		self.sampledSequence[t][compare]:fill(onmt.Constants.PAD)
+		
+		-- check the positions of the samples that are PAD or EOS -> that sentence is finished
+		local stop = torch.eq(self.sampledSequence[t], onmt.Constants.EOS)
+		stop:add(torch.eq(self.sampledSequence[t], onmt.Constants.PAD))
+		--~ continue = continue:float()
+		--~ print(continue)
+		-- if all of them are finished then we stop the RNN from running
+		if stop:sum() == batch.size then
+			realLength = t
+			break
+		end
+	end
+	
+	--~ if t > 1 then
+		--~ local continue = torch.Tensor(batch.size) -- track completeness of each sentence
+		--~ for b = 1, batch.size do
+			--~ if inputT[b] == onmt.Constants.EOS or inputT[b] == onmt.Constants.PAD then -- stop sampling if input is EOS or PAD
+				--~ self.sampledSequence[t][b] = onmt.Constants.PAD
+			--~ end
+			
+			--~ if self.sampledSequence[t][b] == onmt.Constants.EOS or self.sampledSequence[t][b] == onmt.Constants.PAD then
+				--~ continue[b] = 0 -- this sentence is finished
+			--~ else
+				--~ continue[b] = 1
+			--~ end
+		--~ end
+		
+		--~ if continue:sum() == 0 then -- if all sentences are finished
+			--~ realLength = t 
+			--~ break
+		--~ end
+		
+	--~ end
+
+	
+
+	-- for the sentences with only one word (<s>)
+	if batch.targetLength == 1 then
+		realLength = t
+		break
+	end
+	
+	
+	
+	
+  end
+	
+	--~ print(realLength)
+	self.sampledSequence:resize(realLength, batch.size)
+	--~ self.sampledSequence = self.sampledSequence:narrow(1, 1, realLength)
+	--~ self.predRewards = self.predRewards:narrow(1, 1,realLength)
+	self.predRewards:resize(realLength, batch.size)
+  
+	if torch.typename(self.sampledSequence):find('torch%.Cuda.*Tensor') then
+		self.sampledSequence = self.sampledSequence:cuda()
+	else
+		self.sampledSequence = self.sampledSequence:float()
+	end
 
   return outputs
 end
@@ -466,14 +607,10 @@ function Decoder:initGradOutput(batch)
 	-- gradients w.r.t samples
 	gradStatesInput[self.args.outputIndex.sample] = onmt.utils.Tensor.reuseTensor(self.gradSamplingProto, {batch.size})
 	
+	-- gradients w.r.t predicted rewards (always 0 in MIXER)
+	gradStatesInput[self.args.outputIndex.reward] = onmt.utils.Tensor.reuseTensor(self.gradRewardProto, {batch.size, 1})
 	
-	
-	--~ local nFeature = #batch.targetOutputFeatures
-  --~ local gradPredProto = {}
-  --~ for i = 1, nFeature+1 do
-	--~ table.insert(gradPredProto, torch.Tensor())
-  --~ end
-  --~ table.insert(gradStatesInput, gradPredProto)
+	self.gradSoftmaxProto = onmt.utils.Tensor.reuseTensor(self.gradSoftMaxProto, {batch.size, self.args.softmaxSize})
 	
 	return  gradStatesInput, gradContextInput
 end
@@ -489,32 +626,68 @@ Parameters:
   Note: This code runs both the standard backward and criterion forward/backward.
   It returns both the gradInputs and the loss.
   -- ]]
-function Decoder:backward(batch, outputs, criterion)
+function Decoder:backward(batch, outputs, criterion, criterionRF)
   
   
   local gradStatesInput, gradContextInput = self:initGradOutput(batch)
+  
 
-  local loss = 0
-
-  for t = batch.targetLength, 1, -1 do
+  local lossXENT = 0
+  local lossRF   = 0
+  local numSamplesXENT = 0
+  local numSamplesRF   = 0
+  local gradReinforce
+  local totCumRewardPredError = 0
+  
+  local seqLength = self.sampledSequence:size(1)
+  local nstepsinit = self.nstepsinit
+  
+  criterionRF:setSkips(nstepsinit)
+  
+  -- we only compute reinforce loss if we actually sampled
+  if seqLength > nstepsinit then
+	lossRF, numSamplesRF = criterionRF:forward({self.sampledSequence, self.predRewards}, batch.targetOutput)
+	gradReinforce = criterionRF:backward({self.sampledSequence, self.predRewards}, batch.targetOutput)
+	totCumRewardPredError = gradReinforce[2][nstepsinit+1]:norm()
+	print("DEBUGGING")
+  end
+  
+  --~ for t = batch.targetLength, 1, -1 do
+  for t = seqLength, 1, -1 do
     -- Compute decoder output gradients.
     -- Note: This would typically be in the forward pass.
     --~ local pred = self.generator:forward(outputs[t])
-    
-    local pred = outputs[t][3]
-    local output = batch:getTargetOutput(t)
 	
-	--~ print(pred)
-    loss = loss + criterion:forward(pred, output)
 
-    -- Compute the criterion gradient.
-    local genGradOut = criterion:backward(pred, output)
-    for j = 1, #genGradOut do
-      genGradOut[j]:div(batch.totalSize)
-    end
+    local pred = outputs[t][3]
     
-    -- Compute the final layer gradient.
-    gradStatesInput[self.args.outputIndex.prediction] = genGradOut
+    if t > nstepsinit then -- this is a reinforce step
+		
+		-- we don't use softmax here, so it will be zero
+		gradStatesInput[self.args.outputIndex.prediction][1] =  self.gradSoftmaxProto
+		
+		gradStatesInput[self.args.outputIndex.reward][{{}, 1}]:copy(gradReinforce[2][t])
+		
+		gradStatesInput[self.args.outputIndex.sample] = gradReinforce[1][t]
+		
+    else -- this is an xent step, so nothing change
+		--~ local output = batch:getTargetOutput(t)
+		local output = {self.sampledSequence[t]}
+		
+		lossXENT = lossXENT + criterion:forward(pred, output)
+
+		-- Compute the criterion gradient.
+		local genGradOut = criterion:backward(pred, output)
+		for j = 1, #genGradOut do
+		  genGradOut[j]:div(batch.totalSize)
+		end
+		
+		local count = output[1]:ne(onmt.Constants.PAD):sum()
+		numSamplesXENT = numSamplesXENT + count
+		
+		-- Compute the final layer gradient.
+		gradStatesInput[self.args.outputIndex.prediction] = genGradOut
+    end
 
     -- Compute the standard backward.
     local gradInput = self:net(t):backward(self.inputs[t], gradStatesInput)
@@ -525,6 +698,7 @@ function Decoder:backward(batch, outputs, criterion)
     -- Reset the gradients for these guys
     gradStatesInput[self.args.outputIndex.hidden]:zero()
     gradStatesInput[self.args.outputIndex.sample]:zero()
+    gradStatesInput[self.args.outputIndex.reward]:zero()
     
     if self.args.coverageSize > 0 then
 		gradStatesInput[self.args.outputIndex.coverage]:zero()
@@ -552,9 +726,14 @@ function Decoder:backward(batch, outputs, criterion)
   for i = 1, #self.statesProto do
 	table.insert(gradEncoderOutput, gradStatesInput[i])
   end
-
-  return gradEncoderOutput, gradContextInput, loss
+  
+  self.sampledSequence:set()
+  self.predRewards:set()
+  
+  
+  return gradEncoderOutput, gradContextInput, lossXENT, lossRF, numSamplesXENT, numSamplesRF, totCumRewardPredError
 end
+
 
 --[[ Compute the loss on a batch.
 
@@ -653,9 +832,8 @@ function Decoder:sampleBatch(batch, encoderStates, context, maxLength)
 		
 		prevOutputs, states = self:forwardOne(input, states, context, prevOutputs, t)
 		
-		local prevOut = prevOutputs[1]
+		local pred = prevOutputs[3][1]
 		
-		local pred = self.generator:forward(prevOut)[1] -- because generator returns a table
 		pred:exp() -- exp to get the distribution
 		
 		-- get the argmax ( we are using greedy sampling )
@@ -684,11 +862,15 @@ end
 
 
 -- Two functions to control sampling (to make training faster when sampling is not necessary)
-function Decoder:enableSampling()
-	self.network.decoderSampler:enable()
+function Decoder:enableSampling(t)
 	
-	for i = 1, #self.networkClones do
-		self.networkClones[i].decoderSampler:enable()
+	self.network.decoderSampler:enable()
+	if t then
+		self:net(t).decoderSampler:enable()
+	else
+		for i = 1, #self.networkClones do
+			self.networkClones[i].decoderSampler:enable()
+		end
 	end
 end
 
@@ -698,4 +880,10 @@ function Decoder:disableSampling()
 	for i = 1, #self.networkClones do
 		self.networkClones[i].decoderSampler:disable()
 	end
+end
+
+
+function Decoder:setNSamplingSteps(nstep)
+	--~ self.args.nstepsinit = nstep
+	self.args.nSamplingSteps = nstep
 end

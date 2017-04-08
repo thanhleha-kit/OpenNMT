@@ -64,7 +64,13 @@ local options = {
                                       {valid=onmt.utils.ExtendedCmdLine.isInt(1)}},
   {'-curriculum',              0,     [[For this many epochs, order the minibatches based on source
                                             sequence length. Sometimes setting this to 1 will increase convergence speed.]],
-                                      {valid=onmt.utils.ExtendedCmdLine.isUInt()}}
+                                      {valid=onmt.utils.ExtendedCmdLine.isUInt()}},
+  {'-reinforce_from',          10,     [[We will start training reinforce from this epoch]],
+                                      {valid=onmt.utils.ExtendedCmdLine.isInt(1)}},
+  {'-nrsampling_init',         1,     [[Number of steps to sample at the first epoch of reinforce]],
+                                      {valid=onmt.utils.ExtendedCmdLine.isInt(1)}},
+  {'-delta_step',         		1,    [[Increasing the number of sampling steps by delta]],
+                                      {valid=onmt.utils.ExtendedCmdLine.isInt(1)}},
 }
 
 function Trainer.declareOpts(cmd)
@@ -80,9 +86,7 @@ function Trainer:__init(args)
 end
 
 function Trainer:train(model, optim, trainData, validData, dataset, info)
-  _G.scorer = onmt.utils.BLEU.new(dataset.dicts.tgt.words, 4, 1)
-
-  
+ 
   local verbose = true
   
   _G.model:training()
@@ -156,12 +160,12 @@ function Trainer:train(model, optim, trainData, validData, dataset, info)
 		
 		optim:zeroGrad(_G.gradParams)
 		
-		local loss = _G.model:trainNetwork(_G.batch)
+		local lossXENT, lossRF, numSamplesXENT, numSamplesRF, totCumRewardPredError = _G.model:trainNetwork(_G.batch)
 		
 		optim:prepareGrad(_G.gradParams)
 		optim:updateParams(_G.params, _G.gradParams)
 		
-		epochState:update(model, batch, loss)
+		epochState:update(model, batch, lossXENT, lossRF, numSamplesXENT, numSamplesRF, totCumRewardPredError)
 		
 		if iter % self.args.report_every == 0 or ( iter == 1 and epoch == self.args.start_epoch ) then
           epochState:log(iter)
@@ -185,6 +189,7 @@ function Trainer:train(model, optim, trainData, validData, dataset, info)
 
   _G.logger:info('Start training...')
   
+  local nSamplingSteps = self.args.nrsampling_init
 
   for epoch = self.args.start_epoch, self.args.end_epoch do
     _G.logger:info('')
@@ -192,6 +197,17 @@ function Trainer:train(model, optim, trainData, validData, dataset, info)
     local globalProfiler = onmt.utils.Profiler.new(self.args.profiler)
 
     globalProfiler:start('train')
+    
+    if epoch < self.args.reinforce_from then
+		model:setNSamplingSteps(0)
+		model:setWeight(0.0) -- only use loss from XENT
+	else
+		local currentStep = self.args.nrsampling_init + (epoch - self.args.reinforce_from) * self.args.delta_step
+		model:setNSamplingSteps(currentStep)
+		model:setWeight(0.5)
+		_G.logger:info(' * Training this epoch with Reinforcement Learning with delta sampling = ' .. currentStep)
+	end
+    
     local epochState, epochProfile = trainEpoch(epoch, self.args.profiler)
     globalProfiler:add(epochProfile)
     globalProfiler:stop('train')

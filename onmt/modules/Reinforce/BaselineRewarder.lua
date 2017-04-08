@@ -18,6 +18,9 @@ end
 function BaselineRewarder:_buildModel(dim)
 
 	local network = nn.LinearNoBackpropInput(dim, 1)
+	--~ local network = nn.Sequential():add(nn.LinearNoBackpropInput(dim, dim))
+	--~ network:add(nn.Tanh())
+	--~ network:add(nn.Linear(dim, 1))
 	
 	return network
 end

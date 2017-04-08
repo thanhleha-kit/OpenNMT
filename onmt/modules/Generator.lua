@@ -6,6 +6,7 @@ local Generator, parent = torch.class('onmt.Generator', 'onmt.Network')
 
 
 function Generator:__init(rnnSize, outputSize)
+  self.outputSize = outputSize
   parent.__init(self, self:_buildGenerator(rnnSize, outputSize))
 end
 

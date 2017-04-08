@@ -46,13 +46,24 @@ function Seq2Seq.declareOpts(cmd)
   cmd:setCmdLineOptions(options, Seq2Seq.modelName())
 end
 
+function Seq2Seq:buildCriterion(dicts)
+	
+	_G.scorer = onmt.utils.BLEU.new(dicts.tgt.words, 4, 1)
+	self.weightXENT = 1.
+	self.criterion = onmt.ParallelClassNLLCriterionWeighted(self.weightXENT, onmt.Factory.getOutputSizes(dicts.tgt))
+	self.weightRF = 1. - self.weightXENT 
+	self.rfcriterion = onmt.ReinforceCriterion(_G.scorer, onmt.Constants.MAX_TARGET_LENGTH, self.nStepInits, self.weightRF)
+end
+
 function Seq2Seq:__init(args, dicts, verbose)
   parent.__init(self, args)
   onmt.utils.Table.merge(self.args, onmt.utils.ExtendedCmdLine.getModuleOpts(args, options))
 
   self.models.encoder = onmt.Factory.buildWordEncoder(args, dicts.src, verbose)
   self.models.decoder = onmt.Factory.buildWordDecoder(args, dicts.tgt, verbose)
-  self.criterion = onmt.ParallelClassNLLCriterion(onmt.Factory.getOutputSizes(dicts.tgt))
+  --~ self.criterion = onmt.ParallelClassNLLCriterion(onmt.Factory.getOutputSizes(dicts.tgt))
+  
+  self:buildCriterion(dicts)
 end
 
 function Seq2Seq.load(args, models, dicts, isReplica)
@@ -63,7 +74,9 @@ function Seq2Seq.load(args, models, dicts, isReplica)
 
   self.models.encoder = onmt.Factory.loadEncoder(models.encoder, isReplica)
   self.models.decoder = onmt.Factory.loadDecoder(models.decoder, isReplica)
-  self.criterion = onmt.ParallelClassNLLCriterion(onmt.Factory.getOutputSizes(dicts.tgt))
+  --~ self.criterion = onmt.ParallelClassNLLCriterion(onmt.Factory.getOutputSizes(dicts.tgt))
+  
+  self:buildCriterion(dicts)
 
   return self
 end
@@ -90,8 +103,11 @@ function Seq2Seq:getOutput(batch)
 end
 
 function Seq2Seq:forwardComputeLoss(batch)
+  self.criterion:setWeight(1.)
   local encoderStates, context = self.models.encoder:forward(batch)
-  return self.models.decoder:computeLoss(batch, encoderStates, context, self.criterion)
+  local loss = self.models.decoder:computeLoss(batch, encoderStates, context, self.criterion)
+  self.criterion:setWeight(self.weightXENT)
+  return loss
 end
 
 function Seq2Seq:trainNetwork(batch, dryRun)
@@ -103,10 +119,16 @@ function Seq2Seq:trainNetwork(batch, dryRun)
     decOutputs = onmt.utils.Tensor.recursiveClone(decOutputs)
   end
 
-  local encGradStatesOut, gradContext, loss = self.models.decoder:backward(batch, decOutputs, self.criterion)
+  local encGradStatesOut, gradContext, lossXENT, lossRF, numSamplesXENT, numSamplesRF, totCumRewardPredError = self.models.decoder:backward(batch, decOutputs, self.criterion, self.rfcriterion)
   self.models.encoder:backward(batch, encGradStatesOut, gradContext)
-
-  return loss
+  
+  --~ if lossXENT ~= lossXENT then
+	--~ print('loss is NaN.  This usually indicates a bug.')
+	--~ os.exit(0) 
+  --~ end
+  
+  -- so that the perplexity report will be correct
+  return lossXENT / self.weightXENT, lossRF / (self.weightRF + 1e-6), numSamplesXENT, numSamplesRF, totCumRewardPredError
 end
 
 function Seq2Seq:sampleBatch(batch, maxLength, argmax)
@@ -116,6 +138,23 @@ function Seq2Seq:sampleBatch(batch, maxLength, argmax)
 	local sampledBatch = self.models.decoder:sampleBatch(batch, encStates, context, maxLength, argmax)
 	
 	return sampledBatch
+end
+
+function Seq2Seq:setNSamplingSteps(nstep)
+	
+	self.models.decoder:setNSamplingSteps(nstep)
+end
+
+-- reweighting the criterions
+function Seq2Seq:setWeight(w)
+
+	self.weightRF = w
+	self.weightXENT = 1. - w
+	
+	self.rfcriterion:setWeight(w)
+	self.criterion:setWeight(1. - w)
+	
+
 end
 
 return Seq2Seq

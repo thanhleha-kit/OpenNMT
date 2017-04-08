@@ -38,5 +38,9 @@ require('onmt.modules.Utils.LayerNormalization')
 require('onmt.modules.Reinforce.MultinomialSample')
 require('onmt.modules.Reinforce.LinearNoBackpropInput')
 require('onmt.modules.Reinforce.BaselineRewarder')
+require('onmt.modules.Reinforce.ClassNLLCriterionWeighted')
+require('onmt.modules.Reinforce.ParallelClassNLLCriterionWeighted')
+require('onmt.modules.Reinforce.ReinforceCriterion')
+
 
 return onmt

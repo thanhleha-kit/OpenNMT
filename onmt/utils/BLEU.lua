@@ -195,25 +195,36 @@ function BLEU:computeBLEU(hyp, ref)
 	
 	local correct = 0
 	local total = 0
+		
+	local score = torch.Tensor(self.n)
 	
-	local bleu = 1
+	local bleu = 1.
 	
 	for i = 1, self.n do
 		
 		if r[i][1] > 0 then
-			if r[i][2] == 0 then
-				m = m * 0.5 -- smooth bleu score
-				r[i][2] = m
-			end
+			--~ if r[i][2] == 0 then
+				--~ m = m * 0.5 -- smooth bleu score
+				--~ r[i][2] = m
+			--~ end
 			
-			local prec = r[i][2] / r[i][1]
-			bleu = bleu * prec
+			local prec = (r[i][2] + 1) / (r[i][1] + 1) -- smooth bleu score
+ 			bleu = bleu * prec
+ 			--~ score[i] = prec
 		end
 	end
+	
+	--~ local bleu = score:log():sum(1):div(self.n):exp():squeeze()
 	
 	bleu = bleu ^ ( 1 / self.n )
 	
 	bleu = bleu * bp 
+	
+	--~ if (bleu == 0) then
+		--~ print("FUUFUFUFU")
+	--~ end
+	
+	--~ print('hehe')
 	
 	return bleu
 end
@@ -235,7 +246,6 @@ function BLEU:computeScore(hypBatch, refBatch)
 	return bleuScore
 end
 
---~ function BLEU:accumulate
 
 -- Accumulate the scores 
 function BLEU:accumulateCorpusScore(hyp, ref)
@@ -312,7 +322,6 @@ function BLEU:getNgramPrecisionCorpus()
 end
 
 function BLEU:computeCorpusBLEU()
-	local m = 1
 	
 	local r = self:getNgramPrecisionCorpus()
 	
@@ -325,22 +334,26 @@ function BLEU:computeCorpusBLEU()
 	local correct = 0
 	local total = 0
 	
-	local bleu = 1
+	--~ local bleu = 1
+	
+	local score = torch.Tensor(self.n)
 	
 	for i = 1, self.n do
 		
 		if r[i][1] > 0 then
-			if r[i][2] == 0 then
-				m = m * 0 -- smooth bleu score. For corpus level we don't smooth
-				r[i][2] = m
-			end
+			--~ if r[i][2] == 0 then
+				--~ m = m * 0 -- smooth bleu score. 
+				--~ r[i][2] = m
+			--~ end
 			
-			local prec = r[i][2] / r[i][1]
-			bleu = bleu * prec
+			local prec = r[i][2] / r[i][1] -- For corpus level we don't smooth
+			score[i] = prec
 		end
 	end
 	
-	bleu = bleu ^ ( 1 / self.n )
+	--~ bleu = bleu ^ ( 1 / self.n )
+	
+	local bleu = score:log():sum(1):div(self.n):exp():squeeze()
 	
 	bleu = bleu * bp * 100
 	

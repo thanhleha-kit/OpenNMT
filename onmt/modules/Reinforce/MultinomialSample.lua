@@ -51,19 +51,21 @@ function Sample:updateOutput(input) -- input here is a table of outputs for gene
 	self.prob:exp()
 	self.output:resize(wordDist:size(1), 1):fill(0)
 	
-	if self.running == true then
-		if torch.typename(self.output):find('torch%.Cuda.*Tensor') then
-			self.output = self.output:cudaLong()
-		else
-			self.output = self.output:long()
-		end
-		self.prob.multinomial(self.output, self.prob, 1)
-		if torch.typename(self.output):find('torch%.Cuda.*Tensor') then
-			self.output = self.output:cuda()
-		else
-			self.output = self.output:float()
-		end
+	if torch.typename(self.output):find('torch%.Cuda.*Tensor') then
+		self.output = self.output:cudaLong()
+	else
+		self.output = self.output:long()
 	end
+	
+	if self.running == true then
+		self.prob.multinomial(self.output, self.prob, 1)
+	end
+	
+	--~ if torch.typename(self.output):find('torch%.Cuda.*Tensor') then
+		--~ self.output = self.output:cuda()
+	--~ else
+		--~ self.output = self.output:float()
+	--~ end
     
     
 	self.output:resize(wordDist:size(1))
