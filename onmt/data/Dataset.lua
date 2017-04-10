@@ -16,42 +16,78 @@ function Dataset:__init(srcData, tgtData)
 end
 
 --[[ Setup up the training data to respect `maxBatchSize`. ]]
-function Dataset:setBatchSize(maxBatchSize)
+function Dataset:setBatchSize(maxBatchSize, groupTargetLength)
 
   self.batchRange = {}
   self.maxSourceLength = 0
   self.maxTargetLength = 0
+  self.groupTargetLength = groupTargetLength or false
+  
+  -- sanity check
+  assert(self.groupTargetLength == false or self.tgt, 'Target data must be defined to group')
 
   -- Prepares batches in terms of range within self.src and self.tgt.
   local offset = 0
   local batchSize = 1
   local sourceLength = 0
   local targetLength = 0
+  
+  
+  if self.groupTargetLength == false then
 
-  for i = 1, #self.src do
-    -- Set up the offsets to make same source size batches of the
-    -- correct size.
-    if batchSize == maxBatchSize or self.src[i]:size(1) ~= sourceLength then
-      if i > 1 then
-        table.insert(self.batchRange, { ["begin"] = offset, ["end"] = i - 1 })
-      end
+	  for i = 1, #self.src do
+			-- Set up the offsets to make same source size batches of the
+			-- correct size.
+			if batchSize == maxBatchSize or self.src[i]:size(1) ~= sourceLength then
+				if i > 1 then
+					table.insert(self.batchRange, { ["begin"] = offset, ["end"] = i - 1 })
+				end
 
-      offset = i
-      batchSize = 1
-      sourceLength = self.src[i]:size(1)
-      targetLength = 0
-    else
-      batchSize = batchSize + 1
-    end
+				offset = i
+				batchSize = 1
+				sourceLength = self.src[i]:size(1)
+				targetLength = 0
+			else
+				batchSize = batchSize + 1
+			end
 
-    self.maxSourceLength = math.max(self.maxSourceLength, self.src[i]:size(1))
+			self.maxSourceLength = math.max(self.maxSourceLength, self.src[i]:size(1))
 
-    if self.tgt ~= nil then
-      -- Target contains <s> and </s>.
-      local targetSeqLength = self.tgt[i]:size(1) - 1
-      targetLength = math.max(targetLength, targetSeqLength)
-      self.maxTargetLength = math.max(self.maxTargetLength, targetSeqLength)
-    end
+			if self.tgt ~= nil then
+				-- Target contains <s> and </s>.
+				local targetSeqLength = self.tgt[i]:size(1) - 1
+				targetLength = math.max(targetLength, targetSeqLength)
+				self.maxTargetLength = math.max(self.maxTargetLength, targetSeqLength)
+			end
+	  end
+  
+  else -- group sentences by target sizes
+		
+		for i = 1, #self.tgt do
+		
+			local currentTargetLength = self.tgt[i]:size(1) - 1 -- target contain <s> and </s>
+			--~ print(currentTargetLength)
+			
+			if batchSize == maxBatchSize or currentTargetLength ~= targetLength then
+				if i > 1 then
+					table.insert(self.batchRange, { ["begin"] = offset, ["end"] = i - 1 })
+				end
+				
+				offset = i 
+				batchSize = 1
+				targetLength = currentTargetLength
+				sourceLength = 0
+			else
+				batchSize = batchSize + 1
+			end
+			
+			self.maxTargetLength = math.max(self.maxTargetLength, currentTargetLength)
+			
+			-- for source side
+			local currentSourceLength = self.src[i]:size(1)
+			sourceLength = math.max(sourceLength, currentSourceLength)
+			self.maxSourceLength = math.max(self.maxSourceLength, currentSourceLength)
+		end
   end
   -- Catch last batch.
   table.insert(self.batchRange, { ["begin"] = offset, ["end"] = #self.src })

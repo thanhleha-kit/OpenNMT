@@ -104,6 +104,12 @@ local function main()
       Vocabulary.saveFeatures('target', data.dicts.tgt.features, opt.save_data)
     end
   end
+  
+  data.sortTarget = ( Preprocessor.args.sort_target == 1 )
+
+  if ( data.sortTarget ) then 
+		_G.logger:info(' * Data is sorted by target length')
+  end
 
   _G.logger:info('Saving data to \'' .. opt.save_data .. '-train.t7\'...')
   torch.save(opt.save_data .. '-train.t7', data, 'binary', false)

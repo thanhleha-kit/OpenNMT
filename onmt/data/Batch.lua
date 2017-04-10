@@ -5,6 +5,7 @@ local function getLength(seq, ignore)
   local sizes = torch.IntTensor(#seq):zero()
   local max = 0
   local sum = 0
+  local uneven = false
 
   for i = 1, #seq do
     local len = seq[i]:size(1)
@@ -12,10 +13,21 @@ local function getLength(seq, ignore)
       len = len - ignore
     end
     max = math.max(max, len)
+    
+    if len < max then
+			uneven = true
+    end
+    
+    --~ if max == 0 or len > max then
+			--~ if max ~= 0 then
+				--~ uneven = true
+			--~ end
+			--~ max = len
+    --~ end
     sum = sum + len
     sizes[i] = len
   end
-  return max, sizes, sum
+  return max, sizes, sum, uneven
 end
 
 --[[ Data management and batch creation.
@@ -67,7 +79,7 @@ function Batch:__init(src, srcFeatures, tgt, tgtFeatures)
 
   self.size = #src
 
-  self.sourceLength, self.sourceSize = getLength(src)
+  self.sourceLength, self.sourceSize, _, self.uneven = getLength(src)
 
   local sourceSeq = torch.LongTensor(self.sourceLength, self.size):fill(onmt.Constants.PAD)
   self.sourceInput = sourceSeq:clone()

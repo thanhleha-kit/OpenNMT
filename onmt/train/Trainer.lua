@@ -167,7 +167,7 @@ function Trainer:train(model, optim, trainData, validData, dataset, info)
 		
 		epochState:update(model, batch, lossXENT, lossRF, numSamplesXENT, numSamplesRF, totCumRewardPredError)
 		
-		if iter % self.args.report_every == 0 or ( iter == 1 and epoch == self.args.start_epoch ) then
+		if iter % self.args.report_every == 0 or iter == 1  then
           epochState:log(iter)
         end
         

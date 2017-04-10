@@ -69,8 +69,10 @@ local function main()
   local trainData = onmt.data.Dataset.new(dataset.train.src, dataset.train.tgt)
   local validData = onmt.data.Dataset.new(dataset.valid.src, dataset.valid.tgt)
 
-  trainData:setBatchSize(opt.max_batch_size)
-  validData:setBatchSize(opt.max_batch_size)
+	-- sortTarget means batches will group samples with the same target size
+	--~ print(dataset.sortTarget)
+  trainData:setBatchSize(opt.max_batch_size, dataset.sortTarget) 
+  validData:setBatchSize(opt.max_batch_size, dataset.sortTarget)
 
   if dataset.dataType == 'bitext' then
     _G.logger:info(' * vocabulary size: source = %d; target = %d',
@@ -102,6 +104,12 @@ local function main()
   onmt.utils.Cuda.convert(_G.model)
   
   model = _G.model
+  
+  model.sortTarget = dataset.sortTarget
+  
+  if model.sortTarget then
+		_G.logger:info(' * Data is sorted by target sentences ')
+  end
   
   
   -- Define optimization method.
