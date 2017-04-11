@@ -49,7 +49,7 @@ function ReinforceCriterion:__init(rewarder, max_length,
 	assert(self.skips <= max_length)
 	
 	self.weight_predictive_reward =
-		(weight_predictive_reward == nil) and 1 or weight_predictive_reward
+		(weight_predictive_reward == nil) and 0.01 or weight_predictive_reward
 	self.weight = (weight == nil) and 1 or weight
 	
 	self.num_samples = 0
@@ -113,6 +113,7 @@ function ReinforceCriterion:updateOutput(input, target)
 	-- Getting the real lengths of sampled sequences
 	-- Default is seqLength (end of sequence) 
 	local realLength = seqReward:clone():fill(seqLength)
+	
 	for b = 1, batchSize do
 		for t = 1, seqLength do
 			if sampled[t][b] == onmt.Constants.EOS then
@@ -147,11 +148,6 @@ function ReinforceCriterion:updateOutput(input, target)
 			self.cumreward[tt]:add(self.cumreward[tt+1], self.reward[tt])
 		end
 	end
-	--~ 
-	--~ print(self.cumreward)
-	
-	
-	--~ 
 	
 	-- we are considering sentence level rewards, so number of samples = number of sentences
 	self.num_samples = batchSize -- simply number of sentences
@@ -167,9 +163,6 @@ function ReinforceCriterion:updateOutput(input, target)
 		self.output = - self.cumreward[skip+1]:sum() * self.normalizing_coeff 
 	end
 	
-	--~ print (self.cumreward[skip+1])
-	
-	--~ print(self.output)
 	return self.output, self.num_samples
 end
 

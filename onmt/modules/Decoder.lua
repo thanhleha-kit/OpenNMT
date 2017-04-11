@@ -260,6 +260,29 @@ function Decoder:_buildModel()
   return network
 end
 
+function Decoder:findAttentionModel()
+	if not self.decoderAttn then
+		self.network:apply(function (layer)
+			if layer.name == 'decoderAttn' then
+				self.decoderAttn = layer
+			elseif layer.name == 'softmaxAttn' then
+				self.softmaxAttn = layer
+			end
+		end)
+		self.decoderAttnClones = {}
+	end
+	
+	for t = #self.decoderAttnClones+1, #self.networkClones do
+		self:net(t):apply(function (layer)
+			if layer.name == 'decoderAttn' then
+				self.decoderAttnClones[t] = layer
+			elseif layer.name == 'softmaxAttn' then
+				self.decoderAttnClones[t].softmaxAttn = layer
+			end
+		end)
+	end
+end
+
 --[[ Mask padding means that the attention-layer is constrained to
   give zero-weight to padding. This is done by storing a reference
   to the softmax attention-layer.
@@ -269,32 +292,57 @@ end
   * See  [onmt.MaskedSoftmax](onmt+modules+MaskedSoftmax).
 --]]
 function Decoder:maskPadding(sourceSizes, sourceLength)
-  if not self.decoderAttn then
-    self.network:apply(function (layer)
-      if layer.name == 'decoderAttn' then
-        self.decoderAttn = layer
-      end
-    end)
-  end
-
-  self.decoderAttn:replace(function(module)
-    if module.name == 'softmaxAttn' then
-      local mod
-      if sourceSizes ~= nil then
-        mod = onmt.MaskedSoftmax(sourceSizes, sourceLength)
-      else
-        mod = nn.SoftMax()
-      end
-
-      mod.name = 'softmaxAttn'
-      mod:type(module._type)
-      self.softmaxAttn = mod
-      return mod
-    else
-      return module
-    end
-  end)
+	self:findAttentionModel()
+	
+	local function substituteSoftmax(module)
+		if module.name == 'softmaxAttn' then
+			local mod
+			if sourceSizes ~= nil then
+				mod = onmt.MaskedSoftmax(sourceSizes, sourceLength)
+			else
+				mod = nn.SoftMax()
+			end
+			mod.name = 'softmaxAttn'
+			mod:type(module._type)
+			self.softmaxAttn = mod
+			return mod
+		else
+			return module
+		end
+	end
+	
+	self.decoderAttn:replace(substituteSoftmax)
+	for t = 1, #self.networkClones do
+		self.decoderAttnClones[t]:replace(substituteSoftmax)
+	end
 end
+--~ function Decoder:maskPadding(sourceSizes, sourceLength)
+  --~ if not self.decoderAttn then
+    --~ self.network:apply(function (layer)
+      --~ if layer.name == 'decoderAttn' then
+        --~ self.decoderAttn = layer
+      --~ end
+    --~ end)
+  --~ end
+--~ 
+  --~ self.decoderAttn:replace(function(module)
+    --~ if module.name == 'softmaxAttn' then
+      --~ local mod
+      --~ if sourceSizes ~= nil then
+        --~ mod = onmt.MaskedSoftmax(sourceSizes, sourceLength)
+      --~ else
+        --~ mod = nn.SoftMax()
+      --~ end
+--~ 
+      --~ mod.name = 'softmaxAttn'
+      --~ mod:type(module._type)
+      --~ self.softmaxAttn = mod
+      --~ return mod
+    --~ else
+      --~ return module
+    --~ end
+  --~ end)
+--~ end
 
 --[[ Run one step of the decoder.
 
@@ -646,10 +694,10 @@ function Decoder:backward(batch, outputs, criterion, criterionRF)
   
   -- we only compute reinforce loss if we actually sampled
   if seqLength > nstepsinit then
-	lossRF, numSamplesRF = criterionRF:forward({self.sampledSequence, self.predRewards}, batch.targetOutput)
-	gradReinforce = criterionRF:backward({self.sampledSequence, self.predRewards}, batch.targetOutput)
-	totCumRewardPredError = gradReinforce[2][nstepsinit+1]:norm()
-	print("DEBUGGING")
+		lossRF, numSamplesRF = criterionRF:forward({self.sampledSequence, self.predRewards}, batch.targetOutput)
+		gradReinforce = criterionRF:backward({self.sampledSequence, self.predRewards}, batch.targetOutput)
+		totCumRewardPredError = gradReinforce[2][nstepsinit+1]:norm()
+		--~ print("DEBUGGING")
   end
   
   --~ for t = batch.targetLength, 1, -1 do
