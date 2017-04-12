@@ -23,6 +23,8 @@ function Dataset:setBatchSize(maxBatchSize, groupTargetLength)
   self.maxTargetLength = 0
   self.groupTargetLength = groupTargetLength or false
   
+  assert(#self.src == #self.tgt)
+  
   -- sanity check
   assert(self.groupTargetLength == false or self.tgt, 'Target data must be defined to group')
 

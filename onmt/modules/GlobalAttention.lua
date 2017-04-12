@@ -1,5 +1,9 @@
 require('nngraph')
 
+math.inf = 99999999999
+
+print(torch.exp(-math.inf))
+
 --[[ Global attention takes a matrix and a query vector. It
 then computes a parameterized convex combination of the matrix
 based on the input query.
@@ -34,18 +38,25 @@ end
 
 function GlobalAttention:_buildModel(dim, contextGate)
   local inputs = {}
-  table.insert(inputs, nn.Identity()())
-  table.insert(inputs, nn.Identity()())
+  table.insert(inputs, nn.Identity()()) -- query
+  table.insert(inputs, nn.Identity()()) -- context
+  table.insert(inputs, nn.Identity()()) -- sourceMask
 
   local targetT = nn.Linear(dim, dim, false)(inputs[1]) -- batchL x dim
   local context = inputs[2] -- batchL x sourceTimesteps x dim
+  local sourceMask = inputs[3]
 
   -- Get attention.
   local attn = nn.MM()({context, nn.Replicate(1,3)(targetT)}) -- batchL x sourceL x 1
   attn = nn.Sum(3)(attn)
-  local softmaxAttn = nn.SoftMax()
+  
+  attn = nn.MaskFill(-math.inf)({attn, sourceMask})
+  local softmaxAttn = nn.maskSoftMax()
   softmaxAttn.name = 'softmaxAttn'
-  attn = softmaxAttn(attn)
+  attn = softmaxAttn({attn, sourceMask})
+  --~ attn = nn.MaskFill(0)({attn, sourceMask})
+  --~ attn = nn.CMulTable()({attn, sourceMask})
+  --~ attn = nn.Normalize(1)(attn)
   attn = nn.Replicate(1,2)(attn) -- batchL x 1 x sourceL
 
   -- Apply attention to context.
@@ -56,16 +67,16 @@ function GlobalAttention:_buildModel(dim, contextGate)
   local contextOutput
   
   if contextGate == true then
-	local contextGate = nn.Sigmoid()(nn.Linear(dim*2, dim, true)(contextCombined))
-	local inputGate = nn.AddConstant(1,false)(nn.MulConstant(-1,false)(contextGate))
+		local contextGate = nn.Sigmoid()(nn.Linear(dim*2, dim, true)(contextCombined))
+		local inputGate = nn.AddConstant(1,false)(nn.MulConstant(-1,false)(contextGate))
 
-	local gatedContext = nn.CMulTable()({contextGate, contextVector})
-	local gatedInput   = nn.CMulTable()({inputGate, inputs[1]})
+		local gatedContext = nn.CMulTable()({contextGate, contextVector})
+		local gatedInput   = nn.CMulTable()({inputGate, inputs[1]})
 
-	local gatedContextCombined = nn.JoinTable(2)({gatedContext, gatedInput})
-	contextOutput = nn.Tanh()(nn.Linear(dim*2, dim, false)(gatedContextCombined))
+		local gatedContextCombined = nn.JoinTable(2)({gatedContext, gatedInput})
+		contextOutput = nn.Tanh()(nn.Linear(dim*2, dim, false)(gatedContextCombined))
   else
-	contextOutput = nn.Tanh()(nn.Linear(dim*2, dim, false)(contextCombined))
+		contextOutput = nn.Tanh()(nn.Linear(dim*2, dim, false)(contextCombined))
   end
 
   return nn.gModule(inputs, {contextOutput})

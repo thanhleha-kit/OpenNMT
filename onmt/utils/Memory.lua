@@ -29,6 +29,7 @@ function Memory.optimize(model, batch, verbose)
 
   batch.sourceLength = 1
   batch.targetLength = 1
+  batch.sourceMask:resize(batch.size, batch.sourceLength)
   batch.uneven = false
 
   model:trainNetwork(batch, true)

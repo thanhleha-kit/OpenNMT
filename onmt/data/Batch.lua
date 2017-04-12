@@ -47,6 +47,7 @@ Batch interface reference [size]:
   * targetInputFeatures: table of target input features sequences
   * targetOutput: expected output idx's of target (ABCDESPPPPPP) [batch x max]
   * targetOutputFeatures: table of target output features sequences
+  * sourceMask: mask for source attention [batch x max]
 
  TODO: change name of size => maxlen
 --]]
@@ -84,6 +85,11 @@ function Batch:__init(src, srcFeatures, tgt, tgtFeatures)
   local sourceSeq = torch.LongTensor(self.sourceLength, self.size):fill(onmt.Constants.PAD)
   self.sourceInput = sourceSeq:clone()
   self.sourceInputRev = sourceSeq:clone()
+  --~ self.sourceMask = sourceSeq:clone():float():fill(1)
+  --~ self.sourceMask = self.sourceMask:t()
+  --~ self.s
+  self.sourceMask = torch.Tensor(self.size, self.sourceLength):fill(1)
+  --~ self.sourceMask = torch.CudaByteTensor(self.size, self.sourceLength):fill(1)
 
   self.sourceInputFeatures = {}
   self.sourceInputRevFeatures = {}
@@ -112,7 +118,8 @@ function Batch:__init(src, srcFeatures, tgt, tgtFeatures)
       end
     end
   end
-
+  
+  -- Start to fill the batch data here
   for b = 1, self.size do
     local sourceOffset = self.sourceLength - self.sourceSize[b] + 1
     local sourceInput = src[b]
@@ -121,6 +128,9 @@ function Batch:__init(src, srcFeatures, tgt, tgtFeatures)
     -- Source input is left padded [PPPPPPABCDE] .
     self.sourceInput[{{sourceOffset, self.sourceLength}, b}]:copy(sourceInput)
     self.sourceInputPadLeft = true
+    
+    --~ self.sourceMask[{{sourceOffset, self.sourceLength}, b}]:fill(0)
+    self.sourceMask[{b, {sourceOffset, self.sourceLength}}]:fill(0)
 
     -- Rev source input is right padded [EDCBAPPPPPP] .
     self.sourceInputRev[{{1, self.sourceSize[b]}, b}]:copy(sourceInputRev)
@@ -154,6 +164,8 @@ function Batch:__init(src, srcFeatures, tgt, tgtFeatures)
       end
     end
   end
+  
+  --~ print(self.sourceMask)
 end
 
 --[[ Set source input directly,

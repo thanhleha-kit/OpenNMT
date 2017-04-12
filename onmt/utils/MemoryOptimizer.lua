@@ -7,7 +7,9 @@ local protectOutput = {
   'nn.Sigmoid',
   'nn.SoftMax',
   'nn.Tanh',
-  'nn.MultinomialSample'
+  'nn.MultinomialSample',
+  'nn.MaskFill',
+  'nn.maskSoftMax'
 }
 
 -- We cannot share the input of these modules as they use it in their backward pass.
@@ -17,6 +19,8 @@ local protectInput = {
   'nn.JoinTable',
   'nn.CMulTable',
   'nn.MM',
+  'nn.MaskFill',
+  'nn.maskSoftMax'
 }
 
 local function contains(list, m)

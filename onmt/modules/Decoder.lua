@@ -167,6 +167,9 @@ function Decoder:_buildModel()
   table.insert(inputs, context)
   self.args.inputIndex.context = #inputs
   
+  local sourceMask = nn.Identity()() -- batchSize x sourceLength
+  table.insert(inputs, sourceMask)
+  
   local inputFeed
   if self.args.inputFeed then
     inputFeed = nn.Identity()() -- batchSize x rnnSize
@@ -212,7 +215,8 @@ function Decoder:_buildModel()
   attnLayer.name = 'decoderAttn'
   
   -- prepare input for the attention module
-  local attnInput = {outputs[#outputs], context}
+  --~ local attnInput = {outputs[#outputs], context}
+  local attnInput = {outputs[#outputs], context, sourceMask}
   if self.args.coverageSize > 0 then
 	table.insert(attnInput, coverageVector)
   end
@@ -360,8 +364,13 @@ Returns:
  2. `states` - All states.
 --]]
 --~ function Decoder:forwardOne(input, prevStates, context, prevOut, prevCoverage, t)
-function Decoder:forwardOne(input, prevStates, context, prevOutputs, t)
+function Decoder:forwardOne(input, mask, prevStates, context, prevOutputs, t)
   local inputs = {}
+  
+  --~ local input = inputTable[1]
+  local sourceMask = mask
+  --~ print(sourceMask)
+  --~ input = x
   
   local prevHidden = prevOutputs[1]
   local prevCoverage = prevOutputs[2] -- could be nil if coverage is disabled
@@ -370,6 +379,7 @@ function Decoder:forwardOne(input, prevStates, context, prevOutputs, t)
   onmt.utils.Table.append(inputs, prevStates)
   table.insert(inputs, input)
   table.insert(inputs, context)
+  table.insert(inputs, sourceMask)
   local inputSize
   if torch.type(input) == 'table' then
     inputSize = input[1]:size(1)
@@ -454,7 +464,7 @@ function Decoder:forwardAndApply(batch, encoderStates, context, func)
   local prevOutputs = {}
 
   for t = 1, batch.targetLength do
-    prevOutputs, states = self:forwardOne(batch:getTargetInput(t), states, context, prevOutputs, t)
+    prevOutputs, states = self:forwardOne(batch:getTargetInput(t), batch.sourceMask, states, context, prevOutputs, t)
     func(prevOutputs, t)
   end
 end
@@ -531,7 +541,7 @@ function Decoder:forward(batch, encoderStates, context)
 	
 	 
 	-- do a forward pass over the model
-	prevOutputs, states = self:forwardOne(inputT, states, context, prevOutputs, t)
+	prevOutputs, states = self:forwardOne(inputT, batch.sourceMask, states, context, prevOutputs, t)
 	
 	-- accumulate reinforcement samples and rewards from nstepsinit + 1
 	if t >= self.nstepsinit then
@@ -694,10 +704,10 @@ function Decoder:backward(batch, outputs, criterion, criterionRF)
   
   -- we only compute reinforce loss if we actually sampled
   if seqLength > nstepsinit then
-	lossRF, numSamplesRF = criterionRF:forward({self.sampledSequence, self.predRewards}, batch.targetOutput)
-	gradReinforce = criterionRF:backward({self.sampledSequence, self.predRewards}, batch.targetOutput)
-	totCumRewardPredError = gradReinforce[2][nstepsinit+1]:norm()
-	print("DEBUGGING")
+		lossRF, numSamplesRF = criterionRF:forward({self.sampledSequence, self.predRewards}, batch.targetOutput)
+		gradReinforce = criterionRF:backward({self.sampledSequence, self.predRewards}, batch.targetOutput)
+		totCumRewardPredError = gradReinforce[2][nstepsinit+1]:norm()
+		--~ print("DEBUGGING")
   end
   
   --~ for t = batch.targetLength, 1, -1 do
@@ -777,7 +787,15 @@ function Decoder:backward(batch, outputs, criterion, criterionRF)
   
   self.sampledSequence:set()
   self.predRewards:set()
+  --~ 
+  --~ if seqLength > nstepsinit then
+		--~ assert(numSamplesXENT == 
+  --~ end
   
+  
+  local padCheck = batch.targetOutput:eq(onmt.Constants.PAD)
+  
+  assert(padCheck:sum() == 0)
   
   return gradEncoderOutput, gradContextInput, lossXENT, lossRF, numSamplesXENT, numSamplesRF, totCumRewardPredError
 end
@@ -878,7 +896,7 @@ function Decoder:sampleBatch(batch, encoderStates, context, maxLength)
 			input = sampledSeq[t - 1]
 		end
 		
-		prevOutputs, states = self:forwardOne(input, states, context, prevOutputs, t)
+		prevOutputs, states = self:forwardOne(input, batch.sourceMask, states, context, prevOutputs, t)
 		
 		local pred = prevOutputs[3][1]
 		
