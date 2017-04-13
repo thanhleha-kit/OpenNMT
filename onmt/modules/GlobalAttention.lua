@@ -2,8 +2,6 @@ require('nngraph')
 
 math.inf = 99999999999
 
-print(torch.exp(-math.inf))
-
 --[[ Global attention takes a matrix and a query vector. It
 then computes a parameterized convex combination of the matrix
 based on the input query.
@@ -49,8 +47,6 @@ function GlobalAttention:_buildModel(dim, contextGate)
   -- Get attention.
   local attn = nn.MM()({context, nn.Replicate(1,3)(targetT)}) -- batchL x sourceL x 1
   attn = nn.Sum(3)(attn)
-  
-  attn = nn.MaskFill(-math.inf)({attn, sourceMask})
   local softmaxAttn = nn.maskSoftMax()
   softmaxAttn.name = 'softmaxAttn'
   attn = softmaxAttn({attn, sourceMask})

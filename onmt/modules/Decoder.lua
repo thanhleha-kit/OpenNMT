@@ -297,28 +297,28 @@ end
 --]]
 function Decoder:maskPadding(sourceSizes, sourceLength)
 	self:findAttentionModel()
-	
-	local function substituteSoftmax(module)
-		if module.name == 'softmaxAttn' then
-			local mod
-			if sourceSizes ~= nil then
-				mod = onmt.MaskedSoftmax(sourceSizes, sourceLength)
-			else
-				mod = nn.SoftMax()
-			end
-			mod.name = 'softmaxAttn'
-			mod:type(module._type)
-			self.softmaxAttn = mod
-			return mod
-		else
-			return module
-		end
-	end
-	
-	self.decoderAttn:replace(substituteSoftmax)
-	for t = 1, #self.networkClones do
-		self.decoderAttnClones[t]:replace(substituteSoftmax)
-	end
+	--~ 
+	--~ local function substituteSoftmax(module)
+		--~ if module.name == 'softmaxAttn' then
+			--~ local mod
+			--~ if sourceSizes ~= nil then
+				--~ mod = onmt.MaskedSoftmax(sourceSizes, sourceLength)
+			--~ else
+				--~ mod = nn.SoftMax()
+			--~ end
+			--~ mod.name = 'softmaxAttn'
+			--~ mod:type(module._type)
+			--~ self.softmaxAttn = mod
+			--~ return mod
+		--~ else
+			--~ return module
+		--~ end
+	--~ end
+	--~ 
+	--~ self.decoderAttn:replace(substituteSoftmax)
+	--~ for t = 1, #self.networkClones do
+		--~ self.decoderAttnClones[t]:replace(substituteSoftmax)
+	--~ end
 end
 --~ function Decoder:maskPadding(sourceSizes, sourceLength)
   --~ if not self.decoderAttn then
@@ -505,11 +505,10 @@ function Decoder:forward(batch, encoderStates, context)
   --~ self.nstepsinit = math.max(batch.targetLength - self.args.nSamplingSteps, 1)
   
   -- It is unfortunate that we are dealing with variable size sequences
-  -- 
   local skips = batch.targetSize:clone() - self.args.nSamplingSteps
   
-  -- minimum nsteps: 1
-  skips[torch.lt(skips, 1)] = 1
+  -- minimum nsteps: 0
+  skips[torch.lt(skips, 1)] = 0
   
   
   self.nstepsinit = torch.min(skips)
@@ -526,87 +525,62 @@ function Decoder:forward(batch, encoderStates, context)
   local realLength = self.args.maxLength
   -- we have to loop until the maximum length of sampling
   for t = 1, self.args.maxLength do
-	local inputT 
-	
-	if t > 1 then
-		inputT = self.sampledSequence[t-1]
-	else
-		inputT = batch:getTargetInput(1)
-	end
-	
-	-- start sampling from the step of stepsinit 
-	if t >= self.nstepsinit then
-		self:enableSampling(t)
-	end
-	
-	 
-	-- do a forward pass over the model
-	prevOutputs, states = self:forwardOne(inputT, batch.sourceMask, states, context, prevOutputs, t)
-	
-	-- accumulate reinforcement samples and rewards from nstepsinit + 1
-	if t >= self.nstepsinit then
-		self.sampledSequence[t]:copy(prevOutputs[4]) 
-		if t > self.nstepsinit then
-			self.predRewards[t]:copy(prevOutputs[5][{{}, 1}])
+		local inputT 
+		
+		if t > 1 then
+			inputT = self.sampledSequence[t-1]
+		else
+			inputT = batch:getTargetInput(1)
 		end
-	else
-		self.sampledSequence[t]:copy(batch:getTargetOutput(t)[1]) -- using ground truth as samples
-	end
-	
-	table.insert(outputs, prevOutputs)
-	
-	if t > 1 then
-		--~ if t >= batch.targetLength then
-			--~ realLength = t
-			--~ break
-		--~ end
 		
-		-- first, we find the positions in the input that has EOS and PAD
-		local compare = torch.eq(inputT, onmt.Constants.EOS)
-		compare:add(torch.eq(inputT, onmt.Constants.PAD))
-		-- and force the sampled positions to be PAD
-		self.sampledSequence[t][compare]:fill(onmt.Constants.PAD)
+		-- start sampling from the step of stepsinit 
+		if t >= self.nstepsinit then
+			self:enableSampling(t)
+		end
 		
-		-- check the positions of the samples that are PAD or EOS -> that sentence is finished
-		local stop = torch.eq(self.sampledSequence[t], onmt.Constants.EOS)
-		stop:add(torch.eq(self.sampledSequence[t], onmt.Constants.PAD))
-		--~ continue = continue:float()
-		--~ print(continue)
-		-- if all of them are finished then we stop the RNN from running
-		if stop:sum() == batch.size then
+		 
+		-- do a forward pass over the model
+		prevOutputs, states = self:forwardOne(inputT, batch.sourceMask, states, context, prevOutputs, t)
+		
+		-- accumulate reinforcement samples and rewards from nstepsinit + 1
+		if t >= self.nstepsinit then
+			self.sampledSequence[t]:copy(prevOutputs[4]) 
+			if t > self.nstepsinit then
+				self.predRewards[t]:copy(prevOutputs[5][{{}, 1}])
+			end
+		else
+			self.sampledSequence[t]:copy(batch:getTargetOutput(t)[1]) -- using ground truth as samples
+		end
+		
+		table.insert(outputs, prevOutputs)
+		
+		-- Check the sampled sequence to handle PADDING and early stopping for sampling
+		if t > 1 then
+			
+			-- first, we find the positions in the input that has EOS and PAD
+			local compare = torch.eq(inputT, onmt.Constants.EOS)
+			compare:add(torch.eq(inputT, onmt.Constants.PAD))
+			-- and force the sampled positions to be PAD
+			self.sampledSequence[t][compare]:fill(onmt.Constants.PAD)
+			
+			-- check the positions of the samples that are PAD or EOS -> that sentence is finished
+			local stop = torch.eq(self.sampledSequence[t], onmt.Constants.EOS)
+			stop:add(torch.eq(self.sampledSequence[t], onmt.Constants.PAD))
+			--~ continue = continue:float()
+			--~ print(continue)
+			-- if all of them are finished then we stop the RNN from running
+			if stop:sum() == batch.size then
+				realLength = t
+				break
+			end
+		end
+		
+
+		-- for the sentences with only one word (<s>)
+		if batch.targetLength == 1 then
 			realLength = t
 			break
 		end
-	end
-	
-	--~ if t > 1 then
-		--~ local continue = torch.Tensor(batch.size) -- track completeness of each sentence
-		--~ for b = 1, batch.size do
-			--~ if inputT[b] == onmt.Constants.EOS or inputT[b] == onmt.Constants.PAD then -- stop sampling if input is EOS or PAD
-				--~ self.sampledSequence[t][b] = onmt.Constants.PAD
-			--~ end
-			
-			--~ if self.sampledSequence[t][b] == onmt.Constants.EOS or self.sampledSequence[t][b] == onmt.Constants.PAD then
-				--~ continue[b] = 0 -- this sentence is finished
-			--~ else
-				--~ continue[b] = 1
-			--~ end
-		--~ end
-		
-		--~ if continue:sum() == 0 then -- if all sentences are finished
-			--~ realLength = t 
-			--~ break
-		--~ end
-		
-	--~ end
-
-	
-
-	-- for the sentences with only one word (<s>)
-	if batch.targetLength == 1 then
-		realLength = t
-		break
-	end
 	
 	
 	
@@ -792,10 +766,6 @@ function Decoder:backward(batch, outputs, criterion, criterionRF)
 		--~ assert(numSamplesXENT == 
   --~ end
   
-  
-  local padCheck = batch.targetOutput:eq(onmt.Constants.PAD)
-  
-  assert(padCheck:sum() == 0)
   
   return gradEncoderOutput, gradContextInput, lossXENT, lossRF, numSamplesXENT, numSamplesRF, totCumRewardPredError
 end

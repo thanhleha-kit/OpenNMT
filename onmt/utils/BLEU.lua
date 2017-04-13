@@ -220,12 +220,6 @@ function BLEU:computeBLEU(hyp, ref)
 	
 	bleu = bleu * bp 
 	
-	--~ if (bleu == 0) then
-		--~ print("FUUFUFUFU")
-	--~ end
-	
-	--~ print('hehe')
-	
 	return bleu
 end
 
