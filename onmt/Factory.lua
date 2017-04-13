@@ -154,7 +154,7 @@ function Factory.loadEncoder(pretrained, clone)
   end
 end
 
-function Factory.buildDecoder(opt, inputNetwork, generator, verbose)
+function Factory.buildDecoder(opt, inputNetwork, generator, rewarder, verbose)
   local inputSize = inputNetwork.inputSize
 
   if opt.input_feed == 1 then
@@ -176,7 +176,7 @@ function Factory.buildDecoder(opt, inputNetwork, generator, verbose)
     end
   end
 
-  return onmt.Decoder.new(inputNetwork, rnn, generator, opt.attention, opt.input_feed == 1, opt.coverage)
+  return onmt.Decoder.new(inputNetwork, rnn, generator, rewarder, opt.attention, opt.input_feed == 1, opt.coverage)
 end
 
 function Factory.buildWordDecoder(opt, dicts, verbose)
@@ -208,8 +208,10 @@ function Factory.buildWordDecoder(opt, dicts, verbose)
 	  linearLayer:noBias()
 	  linearLayer:share(wordEmbLayer, 'weight', 'gradWeight')
   end
+  
+  local rewarder = Factory.buildBaselineRewarder(opt.rnn_size)
 
-  return Factory.buildDecoder(opt, inputNetwork, generator, verbose)
+  return Factory.buildDecoder(opt, inputNetwork, generator, rewarder, verbose)
 end
 function Factory.loadDecoder(pretrained, clone)
   if clone then
@@ -225,6 +227,11 @@ function Factory.buildGenerator(rnnSize, dicts)
   else
     return onmt.Generator(rnnSize, dicts.words:size())
   end
+end
+
+function Factory.buildBaselineRewarder(rnnSize)
+	
+	return onmt.BaselineRewarder(rnnSize)
 end
 
 return Factory

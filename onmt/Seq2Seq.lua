@@ -46,9 +46,11 @@ function Seq2Seq.declareOpts(cmd)
   cmd:setCmdLineOptions(options, Seq2Seq.modelName())
 end
 
+-- We can have several different criterions here, so build them in a single function
 function Seq2Seq:buildCriterion(dicts)
 	
-	_G.scorer = onmt.utils.BLEU.new(dicts.tgt.words, 4, 1)
+	-- should we use scorer as a global variable ?
+	_G.scorer = onmt.utils.BLEU.new(dicts.tgt.words, 4, 1) -- bleu score using 4-gram matching
 	self.weightXENT = 1.
 	self.criterion = onmt.ParallelClassNLLCriterionWeighted(self.weightXENT, onmt.Factory.getOutputSizes(dicts.tgt))
 	self.weightRF = 1. - self.weightXENT 
@@ -61,7 +63,6 @@ function Seq2Seq:__init(args, dicts, verbose)
 
   self.models.encoder = onmt.Factory.buildWordEncoder(args, dicts.src, verbose)
   self.models.decoder = onmt.Factory.buildWordDecoder(args, dicts.tgt, verbose)
-  --~ self.criterion = onmt.ParallelClassNLLCriterion(onmt.Factory.getOutputSizes(dicts.tgt))
   
   self:buildCriterion(dicts)
 end
@@ -74,7 +75,6 @@ function Seq2Seq.load(args, models, dicts, isReplica)
 
   self.models.encoder = onmt.Factory.loadEncoder(models.encoder, isReplica)
   self.models.decoder = onmt.Factory.loadDecoder(models.decoder, isReplica)
-  --~ self.criterion = onmt.ParallelClassNLLCriterion(onmt.Factory.getOutputSizes(dicts.tgt))
   
   self:buildCriterion(dicts)
 
@@ -102,6 +102,7 @@ function Seq2Seq:getOutput(batch)
   return batch.targetOutput
 end
 
+-- compute a forward pass over a minibatch with maximum likelihood
 function Seq2Seq:forwardComputeLoss(batch)
 	self:maskPadding(batch)
   self.criterion:setWeight(1.)
@@ -111,24 +112,20 @@ function Seq2Seq:forwardComputeLoss(batch)
   return loss
 end
 
+--set mask pad for RNN inputs and outputs if necessary
 function Seq2Seq:maskPadding(batch)
-
-	--~ if batch.uneven == true then self.models.encoder:maskPadding() end
 	if self.sortTarget == true then
-		
-		
-		--~ self.models.decoder:maskPadding(batch.sourceSize, batch.sourceLength)
-		--~ 
-			--~ 
 		if batch.uneven == true then 
 			self.models.encoder:maskPadding()
-			--~ self.models.decoder:maskPadding(batch.sourceSize, batch.sourceLength)
 		else
-			--~ self.models.decoder:maskPadding()
 		end
 	end
 end
 
+-- doing a full forward-backward pass over the model in a minibatch
+-- important: the model will perform ML or RL learning based on the criterion weight and 
+-- number of sampling steps
+-- dryRun is used for memory optimization
 function Seq2Seq:trainNetwork(batch, dryRun)
 
 	self:maskPadding(batch)
@@ -142,16 +139,18 @@ function Seq2Seq:trainNetwork(batch, dryRun)
 
   local encGradStatesOut, gradContext, lossXENT, lossRF, numSamplesXENT, numSamplesRF, totCumRewardPredError = self.models.decoder:backward(batch, decOutputs, self.criterion, self.rfcriterion)
   self.models.encoder:backward(batch, encGradStatesOut, gradContext)
-  
-  --~ if lossXENT ~= lossXENT then
-	--~ print('loss is NaN.  This usually indicates a bug.')
-	--~ os.exit(0) 
-  --~ end
+  --~ 
+  if lossXENT ~= lossXENT and lossRF ~= lossRF then
+		print('loss is NaN.  This usually indicates a bug. Maybe the batches contain empty sentences for RL, or the gradients are done incorrectly. ')
+		os.exit(0) 
+  end
   
   -- so that the perplexity report will be correct
-  return lossXENT / self.weightXENT, lossRF / (self.weightRF + 1e-6), numSamplesXENT, numSamplesRF, totCumRewardPredError
+  return lossXENT / (self.weightXENT + 1e-6), lossRF / (self.weightRF + 1e-6), numSamplesXENT, numSamplesRF, totCumRewardPredError
 end
 
+-- Generate a batch of samples by taking argmax of the distribution
+-- For validation purposes only
 function Seq2Seq:sampleBatch(batch, maxLength, argmax)
 	self:maskPadding(batch)
 	
@@ -162,12 +161,13 @@ function Seq2Seq:sampleBatch(batch, maxLength, argmax)
 	return sampledBatch
 end
 
+-- Set how many sampling steps for a sentence in decoder
 function Seq2Seq:setNSamplingSteps(nstep)
 	
 	self.models.decoder:setNSamplingSteps(nstep)
 end
 
--- reweighting the criterions
+-- reweighting the criterions when using Reinforcement learning
 function Seq2Seq:setWeight(w)
 
 	self.weightRF = w
