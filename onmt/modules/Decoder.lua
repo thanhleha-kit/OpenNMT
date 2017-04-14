@@ -85,7 +85,7 @@ function Decoder.load(pretrained)
 
   parent.__init(self, pretrained.modules[1])
   self.rewarder = pretrained.modules[2]
-  self:add(self.generator)
+  self:add(self.rewarder)
 
   self:resetPreallocation()
 
@@ -134,6 +134,7 @@ function Decoder:resetPreallocation()
   
   self.sampledSequence = torch.Tensor()
   self.sampledHidden = torch.Tensor()
+  self.sampledLength = torch.Tensor()
   
   self.gradSoftMaxProto = torch.Tensor()
   
@@ -253,11 +254,6 @@ function Decoder:_buildModel()
   local sample = sampler(prediction)
   table.insert(outputs, sample)
   self.args.outputIndex.sample = #outputs 
-  
-  --~ local baselineRewarder = self.rewarder
-  --~ local predReward = baselineRewarder(attnOutput)
-  --~ table.insert(outputs, predReward)
-  --~ self.args.outputIndex.reward = #outputs
   
   local network = nn.gModule(inputs, outputs)
   -- Pointers to the layers 
@@ -490,8 +486,8 @@ function Decoder:forward(batch, encoderStates, context)
   if self.train then
     self.inputs = {}
     self.sampledSequence:resize(self.args.maxLength, batch.size):zero()
-    --~ self.predRewards = self.sampledSequence:clone()
     self.sampledHidden:resize(self.args.maxLength, batch.size, self.args.rnnSize):zero()
+    self.sampledLength:resize(batch.size):fill(self.args.maxLength)
   end
 
   local outputs = {}
@@ -508,7 +504,7 @@ function Decoder:forward(batch, encoderStates, context)
   
   
   -- It is unfortunate that we are dealing with variable size sequences
-  -- So to ensure that we will have all sequences sampled, we have to find
+  -- So to ensure that we will have all sequences sampled (to balance the RL loss), we have to find
   -- the shortest one in the minibatch
   local skips = batch.targetSize:clone() - self.args.nSamplingSteps
   
@@ -523,10 +519,12 @@ function Decoder:forward(batch, encoderStates, context)
   if maxSkip >= batch.targetLength then
 		self.nstepsinit = maxSkip + 1
   end
+    
   
   -- we will enable sampling when needed
   self:disableSampling()
   local realLength = self.args.maxLength
+  local stopTensor 
   -- we have to loop until the maximum length of sampling
   for t = 1, self.args.maxLength do
 		local inputT 
@@ -550,12 +548,11 @@ function Decoder:forward(batch, encoderStates, context)
 		-- accumulate reinforcement samples from nstepsinit 
 		if t >= self.nstepsinit then
 			self.sampledSequence[t]:copy(prevOutputs[4]) 
-			--~ if t > self.nstepsinit then
-				--~ self.predRewards[t]:copy(prevOutputs[5][{{}, 1}])
-			--~ end
 		else
 			self.sampledSequence[t]:copy(batch:getTargetOutput(t)[1]) -- using ground truth as samples
 		end
+		
+		
 		
 		-- accumulate the sampled hidden (always) 
 		local hidden = prevOutputs[1]
@@ -568,25 +565,40 @@ function Decoder:forward(batch, encoderStates, context)
 			
 			-- first, we find the positions in the input that has EOS and PAD
 			local compare = torch.eq(inputT, onmt.Constants.EOS)
+				
 			compare:add(torch.eq(inputT, onmt.Constants.PAD))
-			-- and force the sampled positions to be PAD
-			self.sampledSequence[t][compare]:fill(onmt.Constants.PAD)
 			
-			-- check the positions of the samples that are PAD or EOS -> that sentence is finished
-			local stop = torch.eq(self.sampledSequence[t], onmt.Constants.EOS)
-			stop:add(torch.eq(self.sampledSequence[t], onmt.Constants.PAD))
+			-- if input is PAD or EOS then the sampled position is also PAD
+			self.sampledSequence[t]:maskedFill(compare, onmt.Constants.PAD)
+			-- using eq and maskedFill is much faster than for loop
+			
+			-- Finding the length of each sample in the minibatch
+			local eosCompare = torch.eq(self.sampledSequence[t], onmt.Constants.EOS)
+			self.sampledLength:maskedFill(eosCompare, t)
+			
+			
+			-- check the positions of the samples that are EOS -> that sentence is finished
+			-- we have to accumulate this stop tensor from the beginning
+			-- because sometimes the model accidentally samples PAD
+			if stopTensor then
+				stopTensor:add(torch.eq(self.sampledSequence[t], onmt.Constants.EOS))
+			else
+				stopTensor = torch.eq(self.sampledSequence[t], onmt.Constants.EOS)
+			end
 			
 			-- if all of them are finished then we stop the RNN from running
-			if stop:sum() == batch.size then
+			if stopTensor:sum() == batch.size then
 				realLength = t
 				break
 			end
+			
 		end
 		
 
 		-- for the sentences with only one word (<s>)
 		if batch.targetLength == 1 then
 			realLength = t
+			self.sampledLength:fill(1)
 			break
 		end
 	
@@ -597,7 +609,6 @@ function Decoder:forward(batch, encoderStates, context)
 	
 	-- Narrow the sampled sequences (to save memory)
 	self.sampledSequence:resize(realLength, batch.size)
-	--~ self.predRewards:resize(realLength, batch.size)
 	self.sampledHidden:resize(realLength, batch.size, self.args.rnnSize)
   
 	if torch.typename(self.sampledSequence):find('torch%.Cuda.*Tensor') then
@@ -605,6 +616,10 @@ function Decoder:forward(batch, encoderStates, context)
 	else
 		self.sampledSequence = self.sampledSequence:float()
 	end
+	
+
+  -- Sanity check after sampling
+	assert(torch.max(self.sampledLength) == realLength, 'max length of sample in minibatch must equals to the length of sampled tensor !!!')
 
   return outputs
 end
@@ -686,9 +701,10 @@ function Decoder:backward(batch, outputs, criterion, criterionRF)
   local predRewards, gradPredRewards
   if seqLength > nstepsinit then
 		predRewards = self.rewarder:forward(self.sampledHidden)
-		lossRF, numSamplesRF = criterionRF:forward({self.sampledSequence, predRewards}, batch.targetOutput)
+		lossRF, numSamplesRF = criterionRF:forward({self.sampledSequence, predRewards, self.sampledLength}, batch.targetOutput)
 		gradReinforce = criterionRF:backward({self.sampledSequence, predRewards}, batch.targetOutput)
 		
+		-- accumulate gradients for the rewarder
 		gradPredRewards = self.rewarder:backward(self.sampledHidden, gradReinforce[2]) 
 		totCumRewardPredError = gradReinforce[2][nstepsinit+1]:norm()
   end
@@ -768,13 +784,8 @@ function Decoder:backward(batch, outputs, criterion, criterionRF)
   end
   
   self.sampledSequence:set()
-  --~ self.predRewards:set()
   self.sampledHidden:set()
-  --~ 
-  --~ if seqLength > nstepsinit then
-		--~ assert(numSamplesXENT == 
-  --~ end
-  
+  self.sampledLength:set()  
   
   return gradEncoderOutput, gradContextInput, lossXENT, lossRF, numSamplesXENT, numSamplesRF, totCumRewardPredError
 end
@@ -865,6 +876,8 @@ function Decoder:sampleBatch(batch, encoderStates, context, maxLength)
 	
 	local realMaxLength = maxLength
 	
+	local stopTensor 
+	
 	-- Start sampling
 	for t = 1, maxLength do
 		local input
@@ -885,20 +898,26 @@ function Decoder:sampleBatch(batch, encoderStates, context, maxLength)
 		local _, indx = pred:max(2)
 		
 		sampledSeq[t]:copy(indx:resize(batch.size))
-			
-		local continueFlag = false 
-		for b = 1, batch.size do
-			if input[b] == onmt.Constants.EOS or input[b] == onmt.Constants.PAD then -- stop sampling if input is EOS or PAD
-				sampledSeq[t][b] = onmt.Constants.PAD
-			else
-				continueFlag = true -- one of the sentences is not finished yet
-			end
+		
+		-- if input is EOS or PAD then sample is PAD too
+		local compare = torch.eq(input, onmt.Constants.EOS)
+		compare:add(torch.eq(input, onmt.Constants.PAD))
+		
+		sampledSeq[t]:maskedFill(compare, onmt.Constants.PAD)
+		
+		-- check if all tensors have ended with EOS
+		if stopTensor then
+			stopTensor:add(torch.eq(sampledSeq[t], onmt.Constants.EOS))
+		else
+			stopTensor = torch.eq(sampledSeq[t], onmt.Constants.EOS)
 		end
-	
-		if continueFlag == false then
-			realMaxLength = t -- Avoid wasting time in sampling too many PAD
+		
+		-- if all of them are finished then we stop the RNN from running
+		if stopTensor:sum() == batch.size then
+			realMaxLength = t
 			break
 		end
+		
 	end
 	
 	sampledSeq = sampledSeq:narrow(1, 1, realMaxLength)  

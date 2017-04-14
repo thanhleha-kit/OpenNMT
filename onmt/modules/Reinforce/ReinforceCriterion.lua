@@ -39,12 +39,14 @@ function ReinforceCriterion:__init(rewarder, max_length,
 	self.gradInput = {}
 	self.max_length = max_length
 	
-	self.gradInput[1] = torch.Tensor()
-	self.gradInput[2] = torch.Tensor()
+	self.gradInput[1] = onmt.utils.Cuda.convert(torch.Tensor())
+	self.gradInput[2] = onmt.utils.Cuda.convert(torch.Tensor())
+	
+	
 	
 	self.sizeAverage = true
-	self.reward = torch.Tensor()
-	self.cumreward = torch.Tensor()
+	self.reward = onmt.utils.Cuda.convert(torch.Tensor())
+	self.cumreward = onmt.utils.Cuda.convert(torch.Tensor())
 	self.skips = (skips == nil) and 1 or skips
 	assert(self.skips <= max_length)
 	
@@ -54,7 +56,7 @@ function ReinforceCriterion:__init(rewarder, max_length,
 	
 	self.num_samples = 0
 	self.normalizing_coeff = 1
-	self.reset = torch.Tensor()
+	self.reset = onmt.utils.Cuda.convert(torch.Tensor())
 	
 	self.rewarder = rewarder
 	
@@ -65,10 +67,10 @@ end
 function ReinforceCriterion:type(tp)
 	parent.type(self, tp)
 	
-	self.gradInput[1] = self.gradInput[1]:type(tp)
-	self.gradInput[2] = self.gradInput[2]:type(tp)
-	self.reward = self.reward:type(tp)
-	self.cumreward = self.cumreward:type(tp)
+	--~ self.gradInput[1] = self.gradInput[1]:type(tp)
+	--~ self.gradInput[2] = self.gradInput[2]:type(tp)
+	--~ self.reward = self.reward:type(tp)
+	--~ self.cumreward = self.cumreward:type(tp)
 	return self
 end
 
@@ -89,6 +91,7 @@ function ReinforceCriterion:updateOutput(input, target)
 	
 	local sampled = input[1]
 	local pred_rewards = input[2]
+	local realLength = input[3] -- optional input is a vector containing length of each sample in the minibatch
 	-- Sanity checks
 	assert(sampled:size(2) == target:size(2)) -- batch_size must be the same
 	assert(sampled:size(1) == pred_rewards:size(1)) 
@@ -99,45 +102,19 @@ function ReinforceCriterion:updateOutput(input, target)
 	local seqLength = sampled:size(1)
 	
 	local skip = math.min(self.skips, seqLength)
-	--~ pri
 	local nSteps = seqLength - skip -- from 1 -> self.skips we don't sample
 	self.reward:resize(seqLength, batchSize):zero()
 	self.cumreward:resize(seqLength, batchSize):zero()
 	
 	-- Compute reward for each sequence in the batch
 	local seqReward = onmt.utils.Cuda.convert(self.rewarder:computeScore(sampled, target))
-	
-	--~ print(seqReward)
-		
+			
 	assert(sampled:size(2) == seqReward:size(1))
-	-- Getting the real lengths of sampled sequences
-	-- Default is seqLength (end of sequence) 
-	local realLength = seqReward:clone():fill(seqLength)
+
 	for b = 1, batchSize do
-		for t = 1, seqLength do
-			if sampled[t][b] == onmt.Constants.EOS then
-				realLength[b] = t  
-				break
-			end
-		end
-		
-		-- Rewarding only at the end of sentence
-		-- We also want to reward the EOS token as well
 		self.reward[realLength[b]][b] = seqReward[b]
 	end
 	
-	--~ print(realLength)
-	
-	
-	-- Rewarding only at the end of sentence
-	-- We also want to reward the EOS token as well
-	--~ for b = 1, batchSize do
-		--~ self.reward[realLength[b]][b] = seqReward[b]
-	--~ end
-	
-	--~ print(self.reward)
-	
-		
 	for tt = seqLength, skip+1, -1 do
 		
 		-- getting cumulative rewards
@@ -147,17 +124,8 @@ function ReinforceCriterion:updateOutput(input, target)
 			self.cumreward[tt]:add(self.cumreward[tt+1], self.reward[tt])
 		end
 	end
-	--~ 
-	--~ print(self.cumreward)
-	
-	
-	--~ 
-	
 	-- we are considering sentence level rewards, so number of samples = number of sentences
 	self.num_samples = batchSize -- simply number of sentences
-	--~ self.reset:ne(sampled[1], onmt.Constants.PAD)
-	--~ self.num_samples = self.reset:sum()
-	
 	
 	self.normalizing_coeff = self.weight / (self.sizeAverage and self.num_samples or 1)
 	
@@ -167,9 +135,6 @@ function ReinforceCriterion:updateOutput(input, target)
 		self.output = - self.cumreward[skip+1]:sum() * self.normalizing_coeff 
 	end
 	
-	--~ print (self.cumreward[skip+1])
-	
-	--~ print(self.output)
 	return self.output, self.num_samples
 end
 
@@ -184,9 +149,7 @@ function ReinforceCriterion:updateGradInput(input, target)
 	local pred_rewards = input[2]
 	local batchSize = target:size(2)
 	local seqLength = sampled:size(1)
-	
-	self.cumreward = self.cumreward:cuda()
-	
+		
 	local skip = math.min(self.skips, seqLength)
 	
 	self.gradInput[1]:resize(seqLength, batchSize):fill(0)
@@ -194,8 +157,6 @@ function ReinforceCriterion:updateGradInput(input, target)
 	
 	-- going backwards
 	for tt = seqLength, skip+1, -1 do
-		
-		--~ self.gradInput[1][tt]:resizeAs(sampled[tt]) -- -- derivative w.r.t. chosen action
 		
 		-- derivative through chosen action is:
 		-- (predicted_cumulative_reward - actual_cumulative_reward)_t.
@@ -208,19 +169,12 @@ function ReinforceCriterion:updateGradInput(input, target)
 		self.reset:ne(sampled[tt], onmt.Constants.PAD)
 		self.gradInput[1][tt]:cmul(self.reset)
 		-- copy over the other input gradient as well
-		self.gradInput[2][tt]:resizeAs(pred_rewards[tt]) -- derivative w.r.t. the predicted reward
+		-- derivative w.r.t. the predicted reward
 		self.gradInput[2][tt]:copy(self.gradInput[1][tt])
 		self.gradInput[2][tt]:mul(self.weight_predictive_reward)
 	end
 	
-	-- The gradients for non-sampling parts are zero
-	
-	--~ for tt = skip, 1, -1 do
-		--~ self.gradInput[1][tt]:resizeAs(sampled[tt])
-		--~ self.gradInput[1][tt]:fill(0)
-		--~ self.gradInput[2][tt]:resizeAs(pred_rewards[tt])
-		--~ self.gradInput[2][tt]:fill(0)
-	--~ end
+	-- from 1 -> skips, all of the gradients are zero
 	
 	return self.gradInput
 	

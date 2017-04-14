@@ -50,7 +50,8 @@ end
 function Seq2Seq:buildCriterion(dicts)
 	
 	-- should we use scorer as a global variable ?
-	_G.scorer = onmt.utils.BLEU.new(dicts.tgt.words, 4, 1) -- bleu score using 4-gram matching
+	--~ _G.scorer = onmt.utils.BLEU.new(dicts.tgt.words, 4, 1) -- bleu score using 4-gram matching
+	_G.scorer = Rewarder(dicts.tgt.words, true, 'bleu')
 	self.weightXENT = 1.
 	self.criterion = onmt.ParallelClassNLLCriterionWeighted(self.weightXENT, onmt.Factory.getOutputSizes(dicts.tgt))
 	self.weightRF = 1. - self.weightXENT 
