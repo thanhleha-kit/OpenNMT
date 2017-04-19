@@ -39,7 +39,9 @@ local options = {
   {'-fix_word_vecs_dec', false, [[Fix word embeddings on the decoder side]]},
   {'-dropout', 0.3, [[Dropout probability. Dropout is applied between vertical LSTM stacks.]]},
   {'-dropout_input', 0, [[Dropout probability on embedding (input of LSTM)]]},
-  {'-tie_embedding', false, [[Tie the embedding layer and the linear layer of the output]]}
+  {'-tie_embedding', false, [[Tie the embedding layer and the linear layer of the output]]},
+  {'-recurrent_rewarder', 0, [[Using recurrent rewarder running in parallel with the decoder.]],
+                     {enum={0,1}}}
 }
 
 function Seq2Seq.declareOpts(cmd)

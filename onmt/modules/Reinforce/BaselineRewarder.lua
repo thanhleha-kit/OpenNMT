@@ -11,22 +11,27 @@ local BaselineRewarder, parent = torch.class('onmt.BaselineRewarder', 'onmt.Netw
 
   * `dim` - dimension of the context vectors.
 --]]
-function BaselineRewarder:__init(dim)
+function BaselineRewarder:__init(dim, cutoffGrad)
 
-  
-  parent.__init(self, self:_buildModel(dim))
+	cutoffGrad = cutoffGrad or true
+  parent.__init(self, self:_buildModel(dim, cutoffGrad))
 end
 
-function BaselineRewarder:_buildModel(dim)
+function BaselineRewarder:_buildModel(dim, cutoffGrad)
   
   self.inputViewer = nn.View(1,1,-1):setNumInputDims(3)
   self.outputViewer = nn.View(1,-1):setNumInputDims(2)
 	
 	local network = nn.Sequential()
 	network:add(self.inputViewer)
-	network:add(nn.LinearNoBackpropInput(dim, 1))
-	network:add(self.outputViewer)
 	
+	if cutoffGrad == true then
+		network:add(nn.LinearNoBackpropInput(dim, 1))
+	else
+		network:add(nn.Linear(dim, 1))
+	end
+	network:add(self.outputViewer)
+
 	return network
 end
 

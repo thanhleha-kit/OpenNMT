@@ -65,12 +65,11 @@ local options = {
   {'-curriculum',              0,     [[For this many epochs, order the minibatches based on source
                                             sequence length. Sometimes setting this to 1 will increase convergence speed.]],
                                       {valid=onmt.utils.ExtendedCmdLine.isUInt()}},
-  {'-reinforce_from',          10,     [[We will start training reinforce from this epoch]],
+  {'-reinforce_from',          99,     [[We will start training reinforce from this epoch]],
                                       {valid=onmt.utils.ExtendedCmdLine.isInt(1)}},
-  {'-nrsampling_init',         1,     [[Number of steps to sample at the first epoch of reinforce]],
+  {'-nrsampling_init',         99,     [[Number of steps to sample at the first epoch of reinforce]],
                                       {valid=onmt.utils.ExtendedCmdLine.isInt(1)}},
-  {'-delta_step',         		1,    [[Increasing the number of sampling steps by delta]],
-                                      {valid=onmt.utils.ExtendedCmdLine.isInt(1)}},
+  {'-delta_step',         		0,    [[Increasing the number of sampling steps by delta]]}
 }
 
 function Trainer.declareOpts(cmd)

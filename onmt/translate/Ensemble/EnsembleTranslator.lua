@@ -274,29 +274,21 @@ end
 
 function Translator:translateBatch(batch)
 
-  --~ self.models.encoder:maskPadding()
-  --~ self.models.decoder:maskPadding()
   for i = 1, self.nModels do
-	self.models[i].encoder:maskPadding()
-	self.models[i].decoder:maskPadding()
+		self.models[i].encoder:maskPadding()
+		self.models[i].decoder:maskPadding()
   end
   
   local encStates = {}
   local contexts = {}
   
   for i = 1, self.nModels do
-	encStates[i], contexts[i] = self.models[i].encoder:forward(batch)
+		encStates[i], contexts[i] = self.models[i].encoder:forward(batch)
   end
-
-  --~ local encStates, context = self.models.encoder:forward(batch)
 
   -- Compute gold score.
   local goldScore
   if batch.targetInput ~= nil then
-    --~ if batch.size > 1 then
-      --~ self.models.decoder:maskPadding(batch.sourceSize, batch.sourceLength)
-    --~ end
-    --~ goldScore = self.models.decoder:computeScore(batch, encStates, context)
     goldScore = self:computeGoldScore(batch, encStates, contexts)
   end
   
@@ -318,10 +310,10 @@ function Translator:translateBatch(batch)
 
   -- Save memory by only keeping track of necessary elements in the states.
   -- Attentions are at index 4 in the states defined in onmt.translate.DecoderAdvancer.
-  local attnIndex = 3
+  local attnIndex = 4
 
   -- Features are at index 6 in the states defined in onmt.translate.DecoderAdvancer.
-  local featsIndex = 5
+  local featsIndex = 6
 
   advancer:setKeptStateIndexes({attnIndex, featsIndex})
 

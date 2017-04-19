@@ -275,9 +275,6 @@ function Translator:translate(src, gold)
 
     local pred, predFeats, predScore, attn, goldScore = self:translateBatch(batch)
 	
-	--~ print(pred, predFeats)
-	--~ print(pred[1])
-	--~ print(predFeats[1])
     for b = 1, batch.size do
       results[b] = {}
 

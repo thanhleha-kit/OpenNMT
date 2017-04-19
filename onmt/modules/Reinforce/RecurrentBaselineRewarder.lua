@@ -3,7 +3,7 @@ require('nngraph')
 --[[ A baseline rewarder that computes the potential reward
      based on the hidden state of the Decoder RNN
 --]]
-local RecurrentBaselineRewarder, parent = torch.class('onmt.BaselineRewarder', 'onmt.Network')
+local RecurrentBaselineRewarder, parent = torch.class('onmt.RecurrentBaselineRewarder', 'onmt.Network')
 
 --[[A nn-style module computing attention.
 
@@ -15,18 +15,27 @@ function RecurrentBaselineRewarder:__init(dim)
   parent.__init(self, self:_buildModel(dim))
 end
 
-function BaselineRewarder:_buildModel(dim)
+function RecurrentBaselineRewarder:_buildModel(dim)
 
-	local network = nn.LinearNoBackpropInput(dim, 1)
-	--~ local network = nn.Sequential():add(nn.LinearNoBackpropInput(dim, dim))
-	--~ network:add(nn.Tanh())
-	--~ network:add(nn.Linear(dim, 1))
+	self.inputViewer = nn.View(1,1,-1):setNumInputDims(3)
+  self.outputViewer = nn.View(1,-1):setNumInputDims(2)
+	
+	local network = nn.Sequential()
+	network:add(nn.IdentityNoBackprop()) -- to cut off backprop 
+	
+	local rnn = cudnn.LSTM(dim, dim, 1, false, 0, false)
+	network:add(rnn)
+	
+	local linearRewarder = onmt.BaselineRewarder(dim, false) -- we DONT cut off grad from here
+	network:add(linearRewarder)
 	
 	return network
 end
 
 
-function BaselineRewarder:postParametersInitialization()
-  self.net.weight:zero()
-  self.net.bias:fill(0.01) 
+function RecurrentBaselineRewarder:updateOutput(input)
+	
+	self.output = self.net:updateOutput(input)
+	
+	return self.output
 end

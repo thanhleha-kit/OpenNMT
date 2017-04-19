@@ -129,16 +129,13 @@ function Decoder:resetPreallocation()
   self.samplingProto = torch.Tensor()
   
   self.gradSamplingProto = torch.Tensor()
-  
-  self.gradRewardProto = torch.Tensor()
-  
+    
   self.sampledSequence = torch.Tensor()
   self.sampledHidden = torch.Tensor()
   self.sampledLength = torch.Tensor()
   
   self.gradSoftMaxProto = torch.Tensor()
-  
-  self.continue = torch.Tensor()
+    
 end
 
 --[[ Build a default one time-step of the decoder
@@ -595,15 +592,12 @@ function Decoder:forward(batch, encoderStates, context)
 		end
 		
 
-		-- for the sentences with only one word (<s>)
+		-- for the sentences with only one word (<s>) (maybe dryrun only)
 		if batch.targetLength == 1 then
 			realLength = t
 			self.sampledLength:fill(1)
 			break
 		end
-	
-	
-	
 	
   end
 	
@@ -656,12 +650,13 @@ function Decoder:initGradOutput(batch)
 	local gradHiddenProto = onmt.utils.Tensor.reuseTensor(self.gradHiddenProto, {batch.size, self.args.rnnSize})
 	table.insert(gradStatesInput, gradHiddenProto)
 	
+	-- gradients w.r.t the softmax
 	gradStatesInput[self.args.outputIndex.prediction] = {}
 	
 	-- gradients w.r.t samples
 	gradStatesInput[self.args.outputIndex.sample] = onmt.utils.Tensor.reuseTensor(self.gradSamplingProto, {batch.size})
 	
-	-- gradients w.r.t distribution	
+	-- gradients w.r.t distribution	if zero
 	self.gradSoftmaxProto = onmt.utils.Tensor.reuseTensor(self.gradSoftMaxProto, {batch.size, self.args.softmaxSize})
 	
 	return  gradStatesInput, gradContextInput
@@ -697,11 +692,16 @@ function Decoder:backward(batch, outputs, criterion, criterionRF)
   criterionRF:setSkips(nstepsinit)
   
   -- we only compute reinforce loss if we actually sampled
-  
   local predRewards, gradPredRewards
+  
   if seqLength > nstepsinit then
+		-- predict the rewards
 		predRewards = self.rewarder:forward(self.sampledHidden)
+		
+		-- get REINFORCE loss: given the samples and the predicted rewards
 		lossRF, numSamplesRF = criterionRF:forward({self.sampledSequence, predRewards, self.sampledLength}, batch.targetOutput)
+		
+		-- backward to get REINFORCE gradients
 		gradReinforce = criterionRF:backward({self.sampledSequence, predRewards}, batch.targetOutput)
 		
 		-- accumulate gradients for the rewarder
@@ -727,26 +727,25 @@ function Decoder:backward(batch, outputs, criterion, criterionRF)
 			-- gradients w.r.t sampling
 			gradStatesInput[self.args.outputIndex.sample] = gradReinforce[1][t]
 		
-    else -- this is an xent step, so nothing change
-		--~ local output = batch:getTargetOutput(t)
-		local output = {self.sampledSequence[t]}
-		
-		lossXENT = lossXENT + criterion:forward(pred, output)
+    else -- this is an maximum likelihood step, so nothing changes
+			local output = {self.sampledSequence[t]}
+			
+			lossXENT = lossXENT + criterion:forward(pred, output)
 
-		-- Compute the criterion gradient.
-		local genGradOut = criterion:backward(pred, output)
-		for j = 1, #genGradOut do
-		  genGradOut[j]:div(batch.totalSize)
-		end
-		
-		local count = output[1]:ne(onmt.Constants.PAD):sum()
-		numSamplesXENT = numSamplesXENT + count
-		
-		-- Compute the final layer gradient.
-		gradStatesInput[self.args.outputIndex.prediction] = genGradOut
+			-- Compute the criterion gradient.
+			local genGradOut = criterion:backward(pred, output)
+			for j = 1, #genGradOut do
+				genGradOut[j]:div(batch.totalSize)
+			end
+			
+			local count = output[1]:ne(onmt.Constants.PAD):sum()
+			numSamplesXENT = numSamplesXENT + count
+			
+			-- Compute the final layer gradient.
+			gradStatesInput[self.args.outputIndex.prediction] = genGradOut
     end
 
-    -- Compute the standard backward.
+    -- Compute the backward pass through the network.
     local gradInput = self:net(t):backward(self.inputs[t], gradStatesInput)
 
     -- Accumulate encoder output gradients.
@@ -757,8 +756,8 @@ function Decoder:backward(batch, outputs, criterion, criterionRF)
     gradStatesInput[self.args.outputIndex.sample]:zero()
     
     if self.args.coverageSize > 0 then
-		gradStatesInput[self.args.outputIndex.coverage]:zero()
-	end
+			gradStatesInput[self.args.outputIndex.coverage]:zero()
+		end
 
     -- Accumulate previous output gradients with input feeding gradients.
     if self.args.inputFeed and t > 1 then
@@ -770,7 +769,7 @@ function Decoder:backward(batch, outputs, criterion, criterionRF)
 	  gradStatesInput[self.args.outputIndex.coverage] = gradInput[self.args.inputIndex.coverage]
     end
 
-    -- Prepare next decoder output gradients.
+    -- Prepare next decoder output gradients for recurrent gradients.
     for i = 1, #self.statesProto do
       gradStatesInput[i]:copy(gradInput[i])
     end

@@ -209,7 +209,8 @@ function Factory.buildWordDecoder(opt, dicts, verbose)
 	  linearLayer:share(wordEmbLayer, 'weight', 'gradWeight')
   end
   
-  local rewarder = Factory.buildBaselineRewarder(opt.rnn_size)
+  --~ print(opt.recurrent_rewarder)
+  local rewarder = Factory.buildBaselineRewarder(opt.rnn_size, opt.recurrent_rewarder == 1)
 
   return Factory.buildDecoder(opt, inputNetwork, generator, rewarder, verbose)
 end
@@ -229,8 +230,14 @@ function Factory.buildGenerator(rnnSize, dicts)
   end
 end
 
-function Factory.buildBaselineRewarder(rnnSize)
+function Factory.buildBaselineRewarder(rnnSize, recurrent)
 	
+	if recurrent == true then
+		_G.logger:info(" * Rewarder is an LSTM running in tandem with the decoder ")
+		return onmt.RecurrentBaselineRewarder(rnnSize)
+	end
+	
+	_G.logger:info(" * Rewarder is a simple logistic regressor")
 	return onmt.BaselineRewarder(rnnSize)
 end
 
